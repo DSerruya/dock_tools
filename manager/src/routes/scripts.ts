@@ -45,6 +45,7 @@ router.post('/', requireRole('admin', 'agent'), async (req, res) => {
     port:         body.port,
     env:          body.env,
     buildCommand: body.buildCommand || undefined,
+    repoToken:    body.repoToken    || undefined,
     schedule:     body.schedule,
     timezone:     body.timezone,
     createdAt:    new Date().toISOString(),

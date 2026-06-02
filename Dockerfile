@@ -14,7 +14,7 @@
 
 FROM node:20-slim AS builder
 
-RUN apt-get update && apt-get install -y git --no-install-recommends \
+RUN apt-get update && apt-get install -y git ca-certificates --no-install-recommends \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
@@ -32,7 +32,7 @@ RUN npm run build \
 
 FROM node:20-slim
 
-RUN apt-get update && apt-get install -y git --no-install-recommends \
+RUN apt-get update && apt-get install -y git ca-certificates --no-install-recommends \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

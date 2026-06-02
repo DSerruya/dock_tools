@@ -414,6 +414,13 @@
         </div>
       </div>
       <div class="form-group">
+        <label>GitHub Token <span style="font-size:10px;color:var(--muted);text-transform:none;letter-spacing:0">(optional — required for private repos)</span></label>
+        <input id="f-token" type="password" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" autocomplete="off" />
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">
+          Create a token at GitHub → Settings → Developer settings → Personal access tokens (scope: <code>repo</code>). Stored securely, never shown in logs.
+        </div>
+      </div>
+      <div class="form-group">
         <label>Build Command <span style="font-size:10px;color:var(--muted);text-transform:none;letter-spacing:0">(optional)</span></label>
         <input id="f-buildcmd" type="text" placeholder="npm install && npm run build" oninput="onBuildCmdChange()" />
         <div id="buildcmd-hint" style="font-size:11px;color:var(--muted);margin-top:5px;display:none">

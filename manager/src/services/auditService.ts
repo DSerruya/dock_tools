@@ -59,8 +59,16 @@ export function list(scriptName?: string): AuditEntry[] {
 
 const TRACKED_FIELDS: (keyof ScriptConfig)[] = [
   'repo', 'branch', 'entryPoint', 'buildCommand', 'runMode',
-  'schedule', 'timezone', 'port', 'env', 'language',
+  'schedule', 'timezone', 'port', 'env', 'language', 'repoToken',
 ];
+
+// Fields whose values should be masked in audit records
+const MASKED_FIELDS = new Set<string>(['repoToken']);
+
+function maskValue(field: string, value: unknown): unknown {
+  if (MASKED_FIELDS.has(field) && value) return '***';
+  return value;
+}
 
 export function diffConfigs(
   oldCfg: Partial<ScriptConfig>,
@@ -71,7 +79,11 @@ export function diffConfigs(
     const o = JSON.stringify(oldCfg[field] ?? null);
     const n = JSON.stringify(newCfg[field] ?? null);
     if (o !== n) {
-      changes.push({ field, oldValue: oldCfg[field], newValue: newCfg[field] });
+      changes.push({
+        field,
+        oldValue: maskValue(field, oldCfg[field]),
+        newValue: maskValue(field, newCfg[field]),
+      });
     }
   }
   return changes;
@@ -80,5 +92,5 @@ export function diffConfigs(
 export function configAsChanges(cfg: Partial<ScriptConfig>): ChangeDetail[] {
   return TRACKED_FIELDS
     .filter(f => cfg[f] !== undefined)
-    .map(f => ({ field: f, oldValue: undefined, newValue: cfg[f] }));
+    .map(f => ({ field: f, oldValue: undefined, newValue: maskValue(f, cfg[f]) }));
 }

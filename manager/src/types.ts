@@ -12,6 +12,7 @@ export interface ScriptConfig {
   env?: Record<string, string>;
   buildCommand?: string;   // optional pre-start step, e.g. "npm install && npm run build"
                            // when set, entryPoint is treated as the start command (e.g. "npm start")
+  repoToken?: string;      // GitHub Personal Access Token for private repos (stored, never logged)
   runMode: RunMode;
   schedule?: string;
   timezone?: string;

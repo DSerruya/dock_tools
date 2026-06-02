@@ -576,7 +576,7 @@ function openAddModal() { resetForm(); document.getElementById('add-modal').clas
 function closeAddModal() { document.getElementById('add-modal').classList.add('hidden'); }
 
 function resetForm() {
-  ['f-name','f-repo','f-entry','f-schedule','f-buildcmd'].forEach(id => {
+  ['f-name','f-repo','f-entry','f-schedule','f-buildcmd','f-token'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = '';
   });
   document.getElementById('f-branch').value    = 'main';
@@ -642,10 +642,12 @@ async function submitAdd() {
   });
 
   const buildcmd = document.getElementById('f-buildcmd').value.trim();
+  const token    = document.getElementById('f-token').value.trim();
 
   const body = { name, language: lang, repo, branch, entryPoint: entry, runMode, env };
-  if (port)    body.port         = parseInt(port);
+  if (port)     body.port         = parseInt(port);
   if (buildcmd) body.buildCommand = buildcmd;
+  if (token)    body.repoToken    = token;
   if (runMode === 'scheduled') { body.schedule = sched; body.timezone = tz; }
 
   try {
