@@ -139,12 +139,19 @@ function renderCard({ config, status, nextRun }) {
   const statusText   = isScheduled ? (status === 'running' ? 'running' : 'scheduled') : status.replace('_',' ');
   const webhookUrl   = `${location.origin}/webhook/${config.name}`;
 
+  const portMeta = config.port
+    ? `<span>🌐 Port ${config.port} <a class="open-app-link" href="http://${location.hostname}:${config.port}" target="_blank" rel="noopener">Open App ↗</a></span>`
+    : '';
+
   const meta = [
     `<span>📁 ${escHtml(config.repo.replace('https://github.com/',''))}</span>`,
+    config.buildCommand
+      ? `<span>🔨 Build: <code>${escHtml(config.buildCommand)}</code></span>`
+      : '',
     `<span>🌿 ${escHtml(config.branch)} · 🚀 ${escHtml(config.entryPoint)}</span>`,
     config.lastSync ? `<span>🔄 Synced ${relativeTime(config.lastSync)}</span>` : '',
     config.lastRun  ? `<span>⏱ Last run ${relativeTime(config.lastRun)}</span>`  : '',
-    config.port     ? `<span>🌐 Port ${config.port}</span>` : '',
+    portMeta,
   ].filter(Boolean).join('');
 
   const scheduleBlock = isScheduled ? `
@@ -569,15 +576,25 @@ function openAddModal() { resetForm(); document.getElementById('add-modal').clas
 function closeAddModal() { document.getElementById('add-modal').classList.add('hidden'); }
 
 function resetForm() {
-  ['f-name','f-repo','f-entry','f-schedule'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
-  document.getElementById('f-branch').value = 'main';
-  document.getElementById('f-lang').value   = 'python';
-  document.getElementById('f-port').value   = '';
-  document.getElementById('f-timezone').value = 'UTC';
+  ['f-name','f-repo','f-entry','f-schedule','f-buildcmd'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
+  document.getElementById('f-branch').value    = 'main';
+  document.getElementById('f-lang').value      = 'python';
+  document.getElementById('f-port').value      = '';
+  document.getElementById('f-timezone').value  = 'UTC';
   document.getElementById('rm-persistent').checked = true;
-  document.getElementById('env-rows').innerHTML = '';
+  document.getElementById('env-rows').innerHTML    = '';
   document.getElementById('cron-preview').textContent = '';
+  onBuildCmdChange();
   toggleRunMode();
+}
+
+function onBuildCmdChange() {
+  const hasBuild = document.getElementById('f-buildcmd').value.trim() !== '';
+  document.getElementById('entry-point-label').textContent = hasBuild ? 'Start Command *' : 'Entry Point *';
+  document.getElementById('f-entry').placeholder           = hasBuild ? 'npm start'       : 'main.py';
+  document.getElementById('buildcmd-hint').style.display  = hasBuild ? '' : 'none';
 }
 
 function toggleRunMode() {
@@ -624,8 +641,11 @@ async function submitAdd() {
     if (k) env[k] = v;
   });
 
+  const buildcmd = document.getElementById('f-buildcmd').value.trim();
+
   const body = { name, language: lang, repo, branch, entryPoint: entry, runMode, env };
-  if (port) body.port = parseInt(port);
+  if (port)    body.port         = parseInt(port);
+  if (buildcmd) body.buildCommand = buildcmd;
   if (runMode === 'scheduled') { body.schedule = sched; body.timezone = tz; }
 
   try {

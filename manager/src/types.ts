@@ -10,6 +10,8 @@ export interface ScriptConfig {
   entryPoint: string;
   port?: number;
   env?: Record<string, string>;
+  buildCommand?: string;   // optional pre-start step, e.g. "npm install && npm run build"
+                           // when set, entryPoint is treated as the start command (e.g. "npm start")
   runMode: RunMode;
   schedule?: string;
   timezone?: string;

@@ -36,17 +36,18 @@ router.post('/', requireRole('admin', 'agent'), async (req, res) => {
     return res.status(400).json({ error: 'Invalid cron expression' });
 
   const config: ScriptConfig = {
-    name:       body.name,
-    language:   body.language,
-    repo:       body.repo,
-    entryPoint: body.entryPoint,
-    branch:     body.branch  || 'main',
-    runMode:    body.runMode || 'persistent',
-    port:       body.port,
-    env:        body.env,
-    schedule:   body.schedule,
-    timezone:   body.timezone,
-    createdAt:  new Date().toISOString(),
+    name:         body.name,
+    language:     body.language,
+    repo:         body.repo,
+    entryPoint:   body.entryPoint,
+    branch:       body.branch       || 'main',
+    runMode:      body.runMode      || 'persistent',
+    port:         body.port,
+    env:          body.env,
+    buildCommand: body.buildCommand || undefined,
+    schedule:     body.schedule,
+    timezone:     body.timezone,
+    createdAt:    new Date().toISOString(),
   };
 
   configService.save(config);

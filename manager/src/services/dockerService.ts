@@ -59,11 +59,24 @@ async function removeIfExists(name: string): Promise<void> {
   await c.remove({ force: true });
 }
 
+function resolveCmd(config: ScriptConfig): string[] {
+  if (config.buildCommand) {
+    // Build phase + custom start command (entryPoint is the shell start command, e.g. "npm start")
+    return ['sh', '-c', `${config.buildCommand} && ${config.entryPoint}`];
+  }
+  return (CMD_MAP[config.language] || CMD_MAP.node)(config.entryPoint);
+}
+
 async function createContainer(config: ScriptConfig, restartPolicy: string): Promise<Dockerode.Container> {
   const image = IMAGE_MAP[config.language] || 'node:20-slim';
-  const cmd   = (CMD_MAP[config.language]  || CMD_MAP.node)(config.entryPoint);
+  const cmd   = resolveCmd(config);
 
   await pullImage(image);
+
+  // Read-write mount when a build step is needed (npm install writes node_modules, etc.)
+  const bindMount = config.buildCommand
+    ? `${hostRepoPath(config.name)}:/app`
+    : `${hostRepoPath(config.name)}:/app:ro`;
 
   const opts: Dockerode.ContainerCreateOptions = {
     name: containerName(config.name),
@@ -72,7 +85,7 @@ async function createContainer(config: ScriptConfig, restartPolicy: string): Pro
     WorkingDir: '/app',
     Env: Object.entries(config.env || {}).map(([k, v]) => `${k}=${v}`),
     HostConfig: {
-      Binds: [`${hostRepoPath(config.name)}:/app:ro`],
+      Binds: [bindMount],
       RestartPolicy: { Name: restartPolicy },
       NetworkMode: DOCKER_NETWORK,
     },

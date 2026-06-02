@@ -58,7 +58,7 @@ export function list(scriptName?: string): AuditEntry[] {
 // ── Diff helpers ──────────────────────────────────────────────────────────────
 
 const TRACKED_FIELDS: (keyof ScriptConfig)[] = [
-  'repo', 'branch', 'entryPoint', 'runMode',
+  'repo', 'branch', 'entryPoint', 'buildCommand', 'runMode',
   'schedule', 'timezone', 'port', 'env', 'language',
 ];
 
