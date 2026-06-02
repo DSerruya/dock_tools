@@ -199,6 +199,26 @@
     .quick-pick   { background: var(--bg); border: 1px solid var(--border); color: var(--muted); border-radius: 4px; padding: 3px 8px; font-size: 11px; cursor: pointer; }
     .quick-pick:hover { border-color: var(--accent); color: var(--accent); }
 
+    /* ── Audit table ── */
+    .audit-action {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 12px; font-weight: 500; white-space: nowrap;
+    }
+    .audit-user {
+      display: inline-flex; align-items: center; gap: 4px;
+      background: #1a1d27; border: 1px solid var(--border);
+      border-radius: 12px; padding: 2px 8px; font-size: 11px; color: var(--muted);
+    }
+    .changes-list { display: flex; flex-direction: column; gap: 4px; }
+    .change-row   { display: grid; grid-template-columns: 120px 1fr auto 1fr; align-items: start; gap: 6px; font-size: 12px; }
+    .change-field { color: var(--accent); font-weight: 600; font-family: monospace; }
+    .change-arrow { color: var(--muted); flex-shrink: 0; }
+    .change-val   { font-family: monospace; font-size: 11px; word-break: break-all; }
+    .change-val-old { color: var(--red);   background: #3b0d0d22; border-radius: 3px; padding: 1px 4px; }
+    .change-val-new { color: var(--green); background: #14301a22; border-radius: 3px; padding: 1px 4px; }
+    .change-val-none { color: var(--muted); font-style: italic; }
+    .no-changes { font-size: 12px; color: var(--muted); font-style: italic; }
+
     /* ── Log viewer modal ── */
     .log-viewer-modal { max-width: 900px; }
     .log-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; font-size: 12px; color: var(--muted); }
@@ -235,6 +255,7 @@
   <div class="tabs">
     <button class="tab-btn active" onclick="showTab('scripts')">⚡ Scripts</button>
     <button class="tab-btn"        onclick="showTab('logs')">📋 Logs</button>
+    <button class="tab-btn"        onclick="showTab('audit')">🕵 Changes</button>
   </div>
   <div class="header-actions">
     <span id="refresh-label" style="font-size:12px;color:var(--muted)"></span>
@@ -250,6 +271,26 @@
       <div class="empty-state">
         <div class="icon"><span class="spinner"></span></div>
         <h2>Loading...</h2>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Audit / Changes tab ── -->
+  <div id="tab-audit" class="tab-panel">
+    <div class="table-toolbar">
+      <div style="display:flex;gap:8px;align-items:center">
+        <label style="margin:0;text-transform:none;letter-spacing:0;color:var(--muted)">Filter script:</label>
+        <select id="audit-filter" onchange="loadAudit()" style="width:200px">
+          <option value="">All scripts</option>
+        </select>
+      </div>
+      <span id="audit-count" style="font-size:12px;color:var(--muted)"></span>
+    </div>
+    <div id="audit-container">
+      <div class="empty-state">
+        <div class="icon">🕵</div>
+        <h2>No changes recorded yet</h2>
+        <p style="color:var(--muted);margin-top:8px">Every config change appears here with the before/after values</p>
       </div>
     </div>
   </div>

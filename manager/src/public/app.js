@@ -63,22 +63,26 @@ async function api(method, path, body) {
 }
 
 /* ── Tab switching ──────────────────────────────────────────────────────── */
+const TAB_INDEX = { scripts: 0, logs: 1, audit: 2 };
+
 function showTab(tab) {
   currentTab = tab;
-  document.querySelectorAll('.tab-panel').forEach(p  => p.classList.remove('active'));
-  document.querySelectorAll('.tab-btn').forEach(b    => b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b  => b.classList.remove('active'));
   document.getElementById(`tab-${tab}`).classList.add('active');
-  document.querySelectorAll('.tab-btn')[tab === 'scripts' ? 0 : 1].classList.add('active');
+  document.querySelectorAll('.tab-btn')[TAB_INDEX[tab] ?? 0].classList.add('active');
 
   document.getElementById('add-btn').style.display = tab === 'scripts' ? '' : 'none';
 
-  if (tab === 'scripts') { loadScripts(); }
-  else                   { loadLogs(); }
+  if (tab === 'scripts') loadScripts();
+  else if (tab === 'logs') loadLogs();
+  else if (tab === 'audit') loadAudit();
 }
 
 function refreshCurrent() {
-  if (currentTab === 'scripts') loadScripts();
-  else                          loadLogs();
+  if (currentTab === 'scripts')    loadScripts();
+  else if (currentTab === 'logs')  loadLogs();
+  else if (currentTab === 'audit') loadAudit();
 }
 
 /* ── Scripts tab ──────────────────────────────────────────────────────────── */
@@ -175,6 +179,91 @@ async function deleteScript(name) {
   if (!confirm(`Delete "${name}"? This will stop the container.`)) return;
   try { await api('DELETE', `/api/scripts/${name}`); toast(`${name} deleted`, 'info'); loadScripts(); }
   catch (e) { toast(e.message, 'error'); }
+}
+
+/* ── Audit / Changes tab ──────────────────────────────────────────────────── */
+
+const ACTION_META = {
+  'script.created':          { icon: '➕', label: 'Script created',    color: 'var(--green)'  },
+  'script.deleted':          { icon: '🗑',  label: 'Script deleted',    color: 'var(--red)'    },
+  'script.started':          { icon: '▶',  label: 'Script started',    color: 'var(--accent)' },
+  'script.stopped':          { icon: '⏹',  label: 'Script stopped',    color: 'var(--muted)'  },
+  'script.restarted':        { icon: '↺',  label: 'Script restarted',  color: 'var(--yellow)' },
+  'config.schedule.set':     { icon: '🕐', label: 'Schedule set',      color: 'var(--accent)' },
+  'config.schedule.removed': { icon: '🚫', label: 'Schedule removed',  color: 'var(--yellow)' },
+  'run.triggered':           { icon: '⚡', label: 'Run triggered',     color: 'var(--blue)'   },
+  'code.synced':             { icon: '🔄', label: 'Code synced',       color: 'var(--green)'  },
+};
+
+function fmtVal(v) {
+  if (v === undefined || v === null) return '<span class="change-val change-val-none">(none)</span>';
+  const s = typeof v === 'object' ? JSON.stringify(v, null, 1) : String(v);
+  return `<span class="change-val">${escHtml(s)}</span>`;
+}
+
+function renderChanges(changes) {
+  if (!changes?.length) return '<span class="no-changes">—</span>';
+  return `<div class="changes-list">${changes.map(c => `
+    <div class="change-row">
+      <span class="change-field">${escHtml(c.field)}</span>
+      <span class="change-val change-val-old">${escHtml(c.oldValue !== undefined && c.oldValue !== null ? String(typeof c.oldValue==='object'?JSON.stringify(c.oldValue):c.oldValue) : '(none)')}</span>
+      <span class="change-arrow">→</span>
+      <span class="change-val change-val-new">${escHtml(c.newValue !== undefined && c.newValue !== null ? String(typeof c.newValue==='object'?JSON.stringify(c.newValue):c.newValue) : '(none)')}</span>
+    </div>`).join('')}</div>`;
+}
+
+async function loadAudit() {
+  setLoading(true);
+  try {
+    const scripts = await api('GET', '/api/scripts').catch(() => []);
+    const sel = document.getElementById('audit-filter');
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">All scripts</option>' +
+      scripts.map(s => `<option value="${escHtml(s.config.name)}"${s.config.name===cur?' selected':''}>${escHtml(s.config.name)}</option>`).join('');
+    if (cur) sel.value = cur;
+
+    const filter  = sel.value;
+    const url     = filter ? `/api/audit?script=${encodeURIComponent(filter)}` : '/api/audit';
+    const entries = await api('GET', url);
+
+    document.getElementById('audit-count').textContent = `${entries.length} entr${entries.length===1?'y':'ies'}`;
+    renderAuditTable(entries);
+    document.getElementById('refresh-label').textContent = `Updated ${new Date().toLocaleTimeString()}`;
+  } catch (e) { toast('Failed to load audit log: ' + e.message, 'error'); }
+  finally { setLoading(false); }
+}
+
+function renderAuditTable(entries) {
+  const el = document.getElementById('audit-container');
+  if (!entries.length) {
+    el.innerHTML = `<div class="empty-state"><div class="icon">🕵</div><h2>No changes recorded yet</h2><p style="color:var(--muted);margin-top:8px">Every config change appears here with before/after values</p></div>`;
+    return;
+  }
+
+  const rows = entries.map(e => {
+    const meta = ACTION_META[e.action] || { icon: '•', label: e.action, color: 'var(--muted)' };
+    return `<tr>
+      <td style="white-space:nowrap">${fmtDateTime(e.timestamp)}</td>
+      <td><span class="audit-user">👤 ${escHtml(e.user)}</span></td>
+      <td><strong>${escHtml(e.scriptName)}</strong></td>
+      <td><span class="audit-action" style="color:${meta.color}">${meta.icon} ${meta.label}</span></td>
+      <td>${renderChanges(e.changes)}</td>
+    </tr>`;
+  }).join('');
+
+  el.innerHTML = `
+    <table class="runs-table">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>User</th>
+          <th>Script</th>
+          <th>Action</th>
+          <th>Changes (field: old → new)</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>`;
 }
 
 /* ── Logs tab ─────────────────────────────────────────────────────────────── */
@@ -416,6 +505,7 @@ document.getElementById('log-viewer-modal').addEventListener('click', e => { if 
 /* ── Boot ─────────────────────────────────────────────────────────────────── */
 loadScripts();
 refreshInterval = setInterval(() => {
-  if (currentTab === 'scripts') loadScripts();
-  else loadLogs();
+  if (currentTab === 'scripts')    loadScripts();
+  else if (currentTab === 'logs')  loadLogs();
+  else if (currentTab === 'audit') loadAudit();
 }, 10000);

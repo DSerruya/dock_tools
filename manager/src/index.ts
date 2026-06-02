@@ -3,7 +3,8 @@ import * as path from 'path';
 import scriptsRouter from './routes/scripts';
 import schedulesRouter from './routes/schedules';
 import webhooksRouter from './routes/webhooks';
-import logsRouter from './routes/logs';
+import logsRouter  from './routes/logs';
+import auditRouter from './routes/audit';
 import { basicAuth } from './middleware/auth';
 import * as configService from './services/configService';
 import * as cronService from './services/cronService';
@@ -33,7 +34,8 @@ app.use(basicAuth);
 
 app.use('/api/scripts', scriptsRouter);
 app.use('/api', schedulesRouter);
-app.use('/api/logs', logsRouter);
+app.use('/api/logs',  logsRouter);
+app.use('/api/audit', auditRouter);
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/', (_req, res) => {
