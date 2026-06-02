@@ -70,6 +70,81 @@ router.post('/', requireRole('admin', 'agent'), async (req, res) => {
   res.status(201).json({ message: 'Script added. Cloning repository in background...' });
 });
 
+router.put('/:name', requireRole('admin', 'agent'), async (req, res) => {
+  const config = configService.get(req.params.name);
+  if (!config) return res.status(404).json({ error: 'Script not found' });
+  const user = getUser(req);
+  const body = req.body as Partial<ScriptConfig>;
+
+  if (body.runMode === 'scheduled' && body.schedule && !cronService.isValidExpression(body.schedule))
+    return res.status(400).json({ error: 'Invalid cron expression' });
+
+  // Build updated config, preserving immutable/runtime fields
+  const updated: ScriptConfig = {
+    ...config,
+    language:     (body.language     ?? config.language),
+    repo:         (body.repo         ?? config.repo),
+    branch:       (body.branch       ?? config.branch),
+    entryPoint:   (body.entryPoint   ?? config.entryPoint),
+    buildCommand: body.buildCommand  !== undefined ? (body.buildCommand  || undefined) : config.buildCommand,
+    repoToken:    body.repoToken     !== undefined ? (body.repoToken     || undefined) : config.repoToken,
+    port:         body.port          !== undefined ?  body.port                        : config.port,
+    env:          body.env           !== undefined ?  body.env                         : config.env,
+    runMode:      (body.runMode      ?? config.runMode),
+    schedule:     body.schedule      !== undefined ? (body.schedule      || undefined) : config.schedule,
+    timezone:     body.timezone      !== undefined ? (body.timezone      || undefined) : config.timezone,
+  };
+
+  const changes = auditService.diffConfigs(config, updated);
+  if (!changes.length) return res.json({ message: 'No changes detected' });
+
+  const repoChanged = config.repo !== updated.repo || config.branch !== updated.branch;
+  const prevStatus  = await dockerService.getStatus(config.name);
+  const wasRunning  = prevStatus === 'running';
+
+  // Stop any active run record
+  const activeRun = logService.findRunningRun(config.name);
+  if (activeRun) logService.markRunFailed(activeRun.runId, 'Config updated');
+
+  // Unregister existing cron before saving so it uses the old config
+  cronService.unregister(config.name);
+
+  configService.save(updated);
+  auditService.record(user, 'config.updated', config.name, changes);
+
+  res.json({ message: 'Config saved. Applying changes in background...' });
+
+  setImmediate(async () => {
+    try {
+      if (repoChanged) {
+        // Wipe old clone so the next start re-clones from the new URL/branch
+        gitService.deleteClone(config.name);
+        console.log(`[edit] Deleted clone for ${config.name} — will re-clone on next start`);
+      }
+
+      const modeChanged = config.runMode !== updated.runMode;
+
+      if (updated.runMode === 'persistent') {
+        if (wasRunning || modeChanged) {
+          await dockerService.removeContainer(config.name);
+          if (!repoChanged) {
+            // Pull latest if repo hasn't changed
+            if (gitService.isCloned(config.name)) await gitService.pull(updated);
+          } else {
+            await gitService.clone(updated);
+            configService.save({ ...updated, lastSync: new Date().toISOString() });
+          }
+          const runId = logService.createRun(updated.name, updated.language, updated.runMode);
+          await dockerService.start(updated, runId);
+        }
+      } else if (updated.runMode === 'scheduled') {
+        await dockerService.removeContainer(config.name);
+        if (updated.schedule) cronService.register(updated);
+      }
+    } catch (err) { console.error(`[edit] ${config.name}:`, err); }
+  });
+});
+
 router.delete('/:name', requireRole('admin'), async (req, res) => {
   const config = configService.get(req.params.name);
   if (!config) return res.status(404).json({ error: 'Script not found' });

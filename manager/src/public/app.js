@@ -4,7 +4,9 @@ let refreshInterval    = null;
 let currentEventSource = null;
 let autoScroll         = true;
 let currentUser        = { username: 'anonymous', role: 'admin' };
-let editingUsername    = null;
+let editingUsername    = null;   // for user management modal
+let scriptModalMode    = 'add';  // 'add' | 'edit'
+let editingScriptName  = null;   // name of script being edited
 
 /* ── Cron helpers ────────────────────────────────────────────────────────── */
 const CRON_DESCS = [
@@ -171,6 +173,10 @@ function renderCard({ config, status, nextRun }) {
          <button class="btn btn-ghost btn-sm" onclick="restartScript('${config.name}')">↺ Restart</button>`
   ) : '';
 
+  const editBtn = canWrite()
+    ? `<button class="btn btn-ghost btn-sm" onclick="editScript('${escHtml(config.name)}')">✏ Edit</button>`
+    : '';
+
   const deleteBtn = canDelete()
     ? `<button class="btn btn-danger btn-sm" onclick="deleteScript('${config.name}')">🗑</button>`
     : '';
@@ -194,6 +200,7 @@ function renderCard({ config, status, nextRun }) {
       </div>
       <div class="card-actions">
         ${writeActions}
+        ${editBtn}
         <button class="btn btn-ghost btn-sm" onclick="showTab('logs');filterLogs('${config.name}')">📋 Logs</button>
         ${deleteBtn}
       </div>
@@ -216,6 +223,13 @@ async function runNow(name) {
   try { await api('POST', `/api/scripts/${name}/run-now`); toast(`${name} triggered`, 'success'); setTimeout(() => { if (currentTab==='logs') loadLogs(); }, 1000); }
   catch (e) { toast(e.message, 'error'); }
 }
+async function editScript(name) {
+  try {
+    const { config } = await api('GET', `/api/scripts/${encodeURIComponent(name)}/status`);
+    openEditModal(config);
+  } catch (e) { toast('Failed to load config: ' + e.message, 'error'); }
+}
+
 async function deleteScript(name) {
   if (!confirm(`Delete "${name}"? This will stop the container.`)) return;
   try { await api('DELETE', `/api/scripts/${name}`); toast(`${name} deleted`, 'info'); loadScripts(); }
@@ -571,9 +585,35 @@ function scrollLogsToBottom() {
   autoScroll = true;
 }
 
-/* ── Add Modal ────────────────────────────────────────────────────────────── */
-function openAddModal() { resetForm(); document.getElementById('add-modal').classList.remove('hidden'); }
-function closeAddModal() { document.getElementById('add-modal').classList.add('hidden'); }
+/* ── Add / Edit Script Modal ─────────────────────────────────────────────── */
+function openAddModal() {
+  scriptModalMode   = 'add';
+  editingScriptName = null;
+  resetForm();
+  document.getElementById('script-modal-title').textContent  = 'Add Script';
+  document.getElementById('script-modal-submit').textContent = 'Add Script';
+  document.getElementById('f-name').disabled   = false;
+  document.getElementById('f-name-hint').style.display = 'none';
+  document.getElementById('add-modal').classList.remove('hidden');
+}
+
+function openEditModal(config) {
+  scriptModalMode   = 'edit';
+  editingScriptName = config.name;
+  resetForm();
+  populateScriptForm(config);
+  document.getElementById('script-modal-title').textContent  = `Edit Script — ${config.name}`;
+  document.getElementById('script-modal-submit').textContent = 'Save Changes';
+  document.getElementById('f-name').disabled   = true;
+  document.getElementById('f-name-hint').style.display = '';
+  document.getElementById('add-modal').classList.remove('hidden');
+}
+
+function closeAddModal() {
+  document.getElementById('add-modal').classList.add('hidden');
+  scriptModalMode   = 'add';
+  editingScriptName = null;
+}
 
 function resetForm() {
   ['f-name','f-repo','f-entry','f-schedule','f-buildcmd','f-token'].forEach(id => {
@@ -586,8 +626,43 @@ function resetForm() {
   document.getElementById('rm-persistent').checked = true;
   document.getElementById('env-rows').innerHTML    = '';
   document.getElementById('cron-preview').textContent = '';
+  document.getElementById('f-token').placeholder = 'ghp_xxxxxxxxxxxxxxxxxxxx';
   onBuildCmdChange();
   toggleRunMode();
+}
+
+function populateScriptForm(config) {
+  document.getElementById('f-name').value     = config.name;
+  document.getElementById('f-lang').value     = config.language;
+  document.getElementById('f-repo').value     = config.repo;
+  document.getElementById('f-branch').value   = config.branch;
+  document.getElementById('f-entry').value    = config.entryPoint;
+  document.getElementById('f-buildcmd').value = config.buildCommand || '';
+  document.getElementById('f-port').value     = config.port || '';
+  document.getElementById('f-token').value    = '';
+  document.getElementById('f-token').placeholder = config.repoToken
+    ? '(token already set — leave blank to keep)'
+    : 'ghp_xxxxxxxxxxxxxxxxxxxx';
+
+  if (config.runMode === 'scheduled') {
+    document.getElementById('rm-scheduled').checked = true;
+  } else {
+    document.getElementById('rm-persistent').checked = true;
+  }
+  document.getElementById('f-schedule').value = config.schedule  || '';
+  document.getElementById('f-timezone').value = config.timezone  || 'UTC';
+
+  document.getElementById('env-rows').innerHTML = '';
+  Object.entries(config.env || {}).forEach(([k, v]) => addEnvRow(k, v));
+
+  onBuildCmdChange();
+  updateCronPreview();
+  toggleRunMode();
+}
+
+async function submitScriptModal() {
+  if (scriptModalMode === 'add') await submitAdd();
+  else                           await submitEdit();
 }
 
 function onBuildCmdChange() {
@@ -620,19 +695,17 @@ function updateCronPreview() {
   el.textContent = expr ? (describeCron(expr) || expr) : '';
 }
 
-async function submitAdd() {
-  const name    = document.getElementById('f-name').value.trim();
-  const lang    = document.getElementById('f-lang').value;
-  const repo    = document.getElementById('f-repo').value.trim();
-  const branch  = document.getElementById('f-branch').value.trim() || 'main';
-  const entry   = document.getElementById('f-entry').value.trim();
-  const runMode = document.querySelector('input[name="run-mode"]:checked').value;
-  const port    = document.getElementById('f-port').value;
-  const sched   = document.getElementById('f-schedule').value.trim();
-  const tz      = document.getElementById('f-timezone').value;
-
-  if (!name || !repo || !entry) { toast('Name, repo URL, and entry point are required', 'error'); return; }
-  if (runMode === 'scheduled' && !sched) { toast('Cron expression required for scheduled mode', 'error'); return; }
+function collectScriptFormBody() {
+  const lang     = document.getElementById('f-lang').value;
+  const repo     = document.getElementById('f-repo').value.trim();
+  const branch   = document.getElementById('f-branch').value.trim() || 'main';
+  const entry    = document.getElementById('f-entry').value.trim();
+  const runMode  = document.querySelector('input[name="run-mode"]:checked').value;
+  const port     = document.getElementById('f-port').value;
+  const sched    = document.getElementById('f-schedule').value.trim();
+  const tz       = document.getElementById('f-timezone').value;
+  const buildcmd = document.getElementById('f-buildcmd').value.trim();
+  const token    = document.getElementById('f-token').value.trim();
 
   const env = {};
   document.querySelectorAll('.env-row').forEach(row => {
@@ -641,20 +714,41 @@ async function submitAdd() {
     if (k) env[k] = v;
   });
 
-  const buildcmd = document.getElementById('f-buildcmd').value.trim();
-  const token    = document.getElementById('f-token').value.trim();
+  const body = { language: lang, repo, branch, entryPoint: entry, runMode, env };
+  if (port)                   body.port         = parseInt(port);
+  body.buildCommand = buildcmd;           // empty string clears it on edit
+  if (token)                  body.repoToken    = token;
+  body.schedule  = runMode === 'scheduled' ? sched : '';
+  body.timezone  = tz;
+  return { body, entry, repo, runMode, sched };
+}
 
-  const body = { name, language: lang, repo, branch, entryPoint: entry, runMode, env };
-  if (port)     body.port         = parseInt(port);
-  if (buildcmd) body.buildCommand = buildcmd;
-  if (token)    body.repoToken    = token;
-  if (runMode === 'scheduled') { body.schedule = sched; body.timezone = tz; }
+async function submitAdd() {
+  const name = document.getElementById('f-name').value.trim();
+  const { body, entry, repo, runMode, sched } = collectScriptFormBody();
+
+  if (!name || !repo || !entry) { toast('Name, repo URL, and entry point are required', 'error'); return; }
+  if (runMode === 'scheduled' && !sched) { toast('Cron expression required for scheduled mode', 'error'); return; }
 
   try {
-    await api('POST', '/api/scripts', body);
+    await api('POST', '/api/scripts', { name, ...body });
     toast(`"${name}" added — cloning in background…`, 'success');
     closeAddModal();
     setTimeout(loadScripts, 2000);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function submitEdit() {
+  const { body, entry, repo, runMode, sched } = collectScriptFormBody();
+
+  if (!repo || !entry) { toast('Repo URL and entry point are required', 'error'); return; }
+  if (runMode === 'scheduled' && !sched) { toast('Cron expression required for scheduled mode', 'error'); return; }
+
+  try {
+    const result = await api('PUT', `/api/scripts/${encodeURIComponent(editingScriptName)}`, body);
+    toast(result.message || 'Config updated', 'success');
+    closeAddModal();
+    setTimeout(loadScripts, 1500);
   } catch (e) { toast(e.message, 'error'); }
 }
 

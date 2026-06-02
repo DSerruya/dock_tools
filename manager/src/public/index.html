@@ -380,7 +380,7 @@
 <div id="add-modal" class="overlay hidden">
   <div class="modal">
     <div class="modal-header">
-      <span class="modal-title">Add Script</span>
+      <span class="modal-title" id="script-modal-title">Add Script</span>
       <button class="modal-close" onclick="closeAddModal()">×</button>
     </div>
     <div class="modal-body">
@@ -388,6 +388,7 @@
         <div class="form-group">
           <label>Name *</label>
           <input id="f-name" type="text" placeholder="my-script" />
+          <div id="f-name-hint" style="font-size:11px;color:var(--muted);margin-top:4px;display:none">Script name cannot be changed after creation.</div>
         </div>
         <div class="form-group">
           <label>Language *</label>
@@ -481,7 +482,7 @@
     </div>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeAddModal()">Cancel</button>
-      <button class="btn btn-primary" onclick="submitAdd()">Add Script</button>
+      <button class="btn btn-primary" id="script-modal-submit" onclick="submitScriptModal()">Add Script</button>
     </div>
   </div>
 </div>

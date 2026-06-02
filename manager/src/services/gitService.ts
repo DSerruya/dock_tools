@@ -39,6 +39,11 @@ export async function pull(config: ScriptConfig): Promise<void> {
   await git.pull('origin', config.branch);
 }
 
+export function deleteClone(name: string): void {
+  const repoPath = getLocalPath(name);
+  if (fs.existsSync(repoPath)) fs.rmSync(repoPath, { recursive: true, force: true });
+}
+
 export async function cloneOrPull(config: ScriptConfig): Promise<string> {
   if (isCloned(config.name)) {
     await pull(config);
