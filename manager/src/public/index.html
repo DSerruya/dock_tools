@@ -207,6 +207,19 @@
     .quick-pick   { background: var(--bg); border: 1px solid var(--border); color: var(--muted); border-radius: 4px; padding: 3px 8px; font-size: 11px; cursor: pointer; }
     .quick-pick:hover { border-color: var(--accent); color: var(--accent); }
 
+    /* ── Import drop zone ── */
+    .file-drop-zone {
+      border: 2px dashed var(--border); border-radius: 10px;
+      padding: 48px 20px; text-align: center; cursor: pointer;
+      transition: border-color .2s, background .2s;
+    }
+    .file-drop-zone:hover, .file-drop-zone.drag-over {
+      border-color: var(--accent); background: #1a1d2788;
+    }
+    .file-drop-icon { font-size: 40px; margin-bottom: 12px; }
+    .import-exists  { color: var(--red);   font-size: 11px; font-weight: 600; }
+    .import-ready   { color: var(--green); font-size: 11px; font-weight: 600; }
+
     /* ── Role badges ── */
     .role-badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; }
     .role-admin  { background: #3b0559; color: #d8b4fe; }
@@ -315,6 +328,7 @@
       </div>
       <div style="display:flex;gap:8px">
         <button class="btn btn-ghost" onclick="exportScripts()" title="Download all script configurations as JSON">⬇ Export Configs</button>
+        <button class="btn btn-ghost" onclick="openImportModal()" title="Import scripts from a JSON export file">⬆ Import Configs</button>
         <button class="btn btn-primary" onclick="openAddUserModal()">+ Add User</button>
       </div>
     </div>
@@ -510,6 +524,46 @@
     <div class="modal-footer">
       <button class="btn btn-ghost btn-sm" onclick="scrollLogsToBottom()">↓ Bottom</button>
       <button class="btn btn-ghost" onclick="closeLogViewer()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Import Scripts Modal ── -->
+<div id="import-modal" class="overlay hidden">
+  <div class="modal" style="max-width:740px">
+    <div class="modal-header">
+      <span class="modal-title">Import Scripts</span>
+      <button class="modal-close" onclick="closeImportModal()">×</button>
+    </div>
+    <div class="modal-body">
+
+      <!-- Step 1: file picker -->
+      <div id="import-step-1">
+        <div class="file-drop-zone" id="import-drop-zone"
+             onclick="document.getElementById('import-file-input').click()"
+             ondragover="importDragOver(event)"
+             ondragleave="importDragLeave(event)"
+             ondrop="importDrop(event)">
+          <div class="file-drop-icon">📂</div>
+          <div style="font-size:15px;font-weight:600">Drop your export file here</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:6px">
+            or click to browse — accepts <code>scripts-export-*.json</code>
+          </div>
+          <input type="file" id="import-file-input" accept=".json" style="display:none"
+                 onchange="loadImportFile(this.files[0])" />
+        </div>
+      </div>
+
+      <!-- Step 2: script selection (shown after parse) -->
+      <div id="import-step-2" style="display:none">
+        <div id="import-table-container"></div>
+      </div>
+
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeImportModal()">Cancel</button>
+      <button class="btn btn-ghost btn-sm" id="import-back-btn" style="display:none" onclick="resetImportModal()">← Back</button>
+      <button class="btn btn-primary" id="import-submit-btn" style="display:none" onclick="submitImport()">Import Selected</button>
     </div>
   </div>
 </div>

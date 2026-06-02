@@ -260,6 +260,161 @@ async function deleteScript(name) {
   catch (e) { toast(e.message, 'error'); }
 }
 
+/* ── Import Scripts ──────────────────────────────────────────────────────── */
+let importParsed  = [];   // scripts parsed from the uploaded JSON
+let existingNames = new Set();
+
+function openImportModal() {
+  resetImportModal();
+  document.getElementById('import-modal').classList.remove('hidden');
+}
+function closeImportModal() {
+  document.getElementById('import-modal').classList.add('hidden');
+  importParsed = [];
+}
+function resetImportModal() {
+  importParsed = [];
+  document.getElementById('import-step-1').style.display  = '';
+  document.getElementById('import-step-2').style.display  = 'none';
+  document.getElementById('import-submit-btn').style.display = 'none';
+  document.getElementById('import-back-btn').style.display   = 'none';
+  document.getElementById('import-table-container').innerHTML = '';
+  document.getElementById('import-file-input').value = '';
+}
+
+// Drag-and-drop handlers
+function importDragOver(e) {
+  e.preventDefault();
+  document.getElementById('import-drop-zone').classList.add('drag-over');
+}
+function importDragLeave(e) {
+  document.getElementById('import-drop-zone').classList.remove('drag-over');
+}
+function importDrop(e) {
+  e.preventDefault();
+  document.getElementById('import-drop-zone').classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file) loadImportFile(file);
+}
+
+async function loadImportFile(file) {
+  if (!file) return;
+  if (!file.name.endsWith('.json')) { toast('Please select a .json file', 'error'); return; }
+
+  try {
+    const text   = await file.text();
+    const parsed = JSON.parse(text);
+
+    if (!Array.isArray(parsed) || !parsed.length) {
+      toast('Invalid file — expected a non-empty JSON array of scripts', 'error');
+      return;
+    }
+
+    importParsed = parsed;
+
+    // Fetch current script names to detect conflicts
+    const current = await api('GET', '/api/scripts').catch(() => []);
+    existingNames  = new Set(current.map(s => s.config.name));
+
+    renderImportTable();
+
+    document.getElementById('import-step-1').style.display  = 'none';
+    document.getElementById('import-step-2').style.display  = '';
+    document.getElementById('import-submit-btn').style.display = '';
+    document.getElementById('import-back-btn').style.display   = '';
+  } catch (e) {
+    toast('Failed to parse file: ' + e.message, 'error');
+  }
+}
+
+function renderImportTable() {
+  const canImport = importParsed.filter(s => !existingNames.has(s.name)).length;
+
+  const rows = importParsed.map((s, i) => {
+    const exists = existingNames.has(s.name);
+    return `<tr style="${exists ? 'opacity:.6' : ''}">
+      <td style="width:36px;text-align:center">
+        <input type="checkbox" id="icb-${i}" ${exists ? 'disabled' : 'checked'} />
+      </td>
+      <td><strong>${escHtml(s.name)}</strong></td>
+      <td><span class="badge badge-${s.language||'node'}">${escHtml(s.language||'node')}</span></td>
+      <td style="font-size:11px;color:var(--muted);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+        ${escHtml((s.repo||'').replace('https://github.com/',''))}
+      </td>
+      <td><span class="run-type">${escHtml(s.runMode||'persistent')}</span></td>
+      <td>
+        ${exists
+          ? '<span class="import-exists">⚠ Name already exists — cannot import</span>'
+          : '<span class="import-ready">✓ Ready</span>'
+        }
+      </td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('import-table-container').innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <span style="font-size:13px;color:var(--muted)">
+        <strong>${importParsed.length}</strong> scripts in file ·
+        <strong style="color:var(--green)">${canImport}</strong> available to import ·
+        <strong style="color:var(--red)">${importParsed.length - canImport}</strong> already exist
+      </span>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-ghost btn-sm" onclick="selectAllImport(true)">Select All</button>
+        <button class="btn btn-ghost btn-sm" onclick="selectAllImport(false)">Deselect All</button>
+      </div>
+    </div>
+    <div style="max-height:360px;overflow-y:auto">
+      <table class="runs-table">
+        <thead>
+          <tr>
+            <th></th><th>Name</th><th>Language</th><th>Repo</th><th>Mode</th><th>Status</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
+function selectAllImport(checked) {
+  importParsed.forEach((_, i) => {
+    const cb = document.getElementById(`icb-${i}`);
+    if (cb && !cb.disabled) cb.checked = checked;
+  });
+}
+
+async function submitImport() {
+  const selected = importParsed.filter((_, i) => {
+    const cb = document.getElementById(`icb-${i}`);
+    return cb && !cb.disabled && cb.checked;
+  });
+
+  if (!selected.length) { toast('No scripts selected', 'error'); return; }
+
+  // Double-check for conflicts before submitting
+  const conflicts = selected.filter(s => existingNames.has(s.name));
+  if (conflicts.length) {
+    toast(`Cannot import: "${conflicts.map(s => s.name).join('", "')}" already exist`, 'error');
+    return;
+  }
+
+  try {
+    const result = await api('POST', '/api/import', { scripts: selected });
+
+    const parts = [];
+    if (result.imported?.length)
+      parts.push(`✅ Imported ${result.imported.length}: ${result.imported.join(', ')}`);
+    if (result.skipped?.length)
+      parts.push(`⚠ Skipped (already exist): ${result.skipped.join(', ')}`);
+    if (result.errors?.length)
+      parts.push(`❌ Errors: ${result.errors.map(e => `${e.name} — ${e.error}`).join('; ')}`);
+
+    const hasError = result.errors?.length > 0;
+    toast(parts.join(' · ') || 'Done', hasError ? 'error' : 'success');
+    closeImportModal();
+    setTimeout(loadScripts, 2000);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
 /* ── Admin tab — User Management ─────────────────────────────────────────── */
 
 async function loadUsers() {
@@ -384,6 +539,7 @@ async function deleteUser(username) {
 
 const ACTION_META = {
   'script.created':          { icon: '➕', label: 'Script created',    color: 'var(--green)'  },
+  'script.imported':         { icon: '📥', label: 'Script imported',   color: 'var(--green)'  },
   'script.deleted':          { icon: '🗑',  label: 'Script deleted',    color: 'var(--red)'    },
   'script.started':          { icon: '▶',  label: 'Script started',    color: 'var(--accent)' },
   'script.stopped':          { icon: '⏹',  label: 'Script stopped',    color: 'var(--muted)'  },
@@ -794,6 +950,7 @@ function setLoading(on) {
 
 /* ── Modal close on overlay click ─────────────────────────────────────────── */
 document.getElementById('add-modal').addEventListener('click',       e => { if (e.target===e.currentTarget) closeAddModal(); });
+document.getElementById('import-modal').addEventListener('click',    e => { if (e.target===e.currentTarget) closeImportModal(); });
 document.getElementById('log-viewer-modal').addEventListener('click', e => { if (e.target===e.currentTarget) closeLogViewer(); });
 document.getElementById('add-user-modal').addEventListener('click',   e => { if (e.target===e.currentTarget) closeAddUserModal(); });
 document.getElementById('edit-user-modal').addEventListener('click',  e => { if (e.target===e.currentTarget) closeEditUserModal(); });
