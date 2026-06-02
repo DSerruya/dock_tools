@@ -313,7 +313,10 @@
         <h2 style="font-size:16px;font-weight:600">User Management</h2>
         <p style="font-size:12px;color:var(--muted);margin-top:4px">Create users and assign roles. Roles control what each user can see and do.</p>
       </div>
-      <button class="btn btn-primary" onclick="openAddUserModal()">+ Add User</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost" onclick="exportScripts()" title="Download all script configurations as JSON">⬇ Export Configs</button>
+        <button class="btn btn-primary" onclick="openAddUserModal()">+ Add User</button>
+      </div>
     </div>
 
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px">
