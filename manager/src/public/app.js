@@ -1,8 +1,10 @@
 /* ── State ─────────────────────────────────────────────────────────────────── */
-let currentTab       = 'scripts';
-let refreshInterval  = null;
+let currentTab         = 'scripts';
+let refreshInterval    = null;
 let currentEventSource = null;
-let autoScroll       = true;
+let autoScroll         = true;
+let currentUser        = { username: 'anonymous', role: 'admin' };
+let editingUsername    = null;
 
 /* ── Cron helpers ────────────────────────────────────────────────────────── */
 const CRON_DESCS = [
@@ -63,20 +65,46 @@ async function api(method, path, body) {
 }
 
 /* ── Tab switching ──────────────────────────────────────────────────────── */
-const TAB_INDEX = { scripts: 0, logs: 1, audit: 2 };
+const TAB_INDEX = { scripts: 0, logs: 1, audit: 2, admin: 3 };
 
 function showTab(tab) {
   currentTab = tab;
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.tab-btn').forEach(b  => b.classList.remove('active'));
-  document.getElementById(`tab-${tab}`).classList.add('active');
-  document.querySelectorAll('.tab-btn')[TAB_INDEX[tab] ?? 0].classList.add('active');
+  const panel = document.getElementById(`tab-${tab}`);
+  if (panel) panel.classList.add('active');
+  const tabBtns = Array.from(document.querySelectorAll('.tab-btn'));
+  const idx = TAB_INDEX[tab] ?? 0;
+  if (tabBtns[idx]) tabBtns[idx].classList.add('active');
 
-  document.getElementById('add-btn').style.display = tab === 'scripts' ? '' : 'none';
+  document.getElementById('add-btn').style.display = (tab === 'scripts' && canWrite()) ? '' : 'none';
 
-  if (tab === 'scripts') loadScripts();
-  else if (tab === 'logs') loadLogs();
+  if (tab === 'scripts')    loadScripts();
+  else if (tab === 'logs')  loadLogs();
   else if (tab === 'audit') loadAudit();
+  else if (tab === 'admin') loadUsers();
+}
+
+/* ── Role helpers ──────────────────────────────────────────────────────────── */
+function isAdmin()   { return currentUser.role === 'admin'; }
+function canWrite()  { return currentUser.role === 'admin' || currentUser.role === 'agent'; }
+function canDelete() { return currentUser.role === 'admin'; }
+
+async function loadCurrentUser() {
+  try {
+    currentUser = await api('GET', '/api/me');
+    // Show admin tab only for admins
+    document.getElementById('tab-admin-btn').style.display = isAdmin() ? '' : 'none';
+    // Show user pill
+    const badge = document.getElementById('user-badge');
+    badge.textContent = `${currentUser.username} · ${currentUser.role}`;
+    badge.className   = `role-badge role-${currentUser.role}`;
+    badge.style.display = '';
+    // Hide add-script button for viewers
+    document.getElementById('add-btn').style.display = canWrite() ? '' : 'none';
+  } catch (e) {
+    console.warn('Could not load user info:', e.message);
+  }
 }
 
 function refreshCurrent() {
@@ -128,11 +156,17 @@ function renderCard({ config, status, nextRun }) {
       ${describeCron(config.schedule) ? `<div style="color:var(--muted);font-size:11px;margin-top:3px">${describeCron(config.schedule)}</div>` : ''}
     </div>` : '';
 
-  const actions = isScheduled
-    ? `<button class="btn btn-ghost btn-sm" onclick="runNow('${config.name}')">▶ Run Now</button>`
-    : `<button class="btn btn-ghost btn-sm" onclick="startScript('${config.name}')">▶ Start</button>
-       <button class="btn btn-ghost btn-sm" onclick="stopScript('${config.name}')">⏹ Stop</button>
-       <button class="btn btn-ghost btn-sm" onclick="restartScript('${config.name}')">↺ Restart</button>`;
+  const writeActions = canWrite() ? (
+    isScheduled
+      ? `<button class="btn btn-ghost btn-sm" onclick="runNow('${config.name}')">▶ Run Now</button>`
+      : `<button class="btn btn-ghost btn-sm" onclick="startScript('${config.name}')">▶ Start</button>
+         <button class="btn btn-ghost btn-sm" onclick="stopScript('${config.name}')">⏹ Stop</button>
+         <button class="btn btn-ghost btn-sm" onclick="restartScript('${config.name}')">↺ Restart</button>`
+  ) : '';
+
+  const deleteBtn = canDelete()
+    ? `<button class="btn btn-danger btn-sm" onclick="deleteScript('${config.name}')">🗑</button>`
+    : '';
 
   return `
     <div class="card">
@@ -152,9 +186,9 @@ function renderCard({ config, status, nextRun }) {
         <button class="copy-btn" onclick="copyText('${escHtml(webhookUrl)}')" title="Copy">📋</button>
       </div>
       <div class="card-actions">
-        ${actions}
+        ${writeActions}
         <button class="btn btn-ghost btn-sm" onclick="showTab('logs');filterLogs('${config.name}')">📋 Logs</button>
-        <button class="btn btn-danger btn-sm" onclick="deleteScript('${config.name}')">🗑</button>
+        ${deleteBtn}
       </div>
     </div>`;
 }
@@ -179,6 +213,126 @@ async function deleteScript(name) {
   if (!confirm(`Delete "${name}"? This will stop the container.`)) return;
   try { await api('DELETE', `/api/scripts/${name}`); toast(`${name} deleted`, 'info'); loadScripts(); }
   catch (e) { toast(e.message, 'error'); }
+}
+
+/* ── Admin tab — User Management ─────────────────────────────────────────── */
+
+async function loadUsers() {
+  setLoading(true);
+  try {
+    const users = await api('GET', '/api/admin/users');
+    renderUsersTable(users);
+    document.getElementById('refresh-label').textContent = `Updated ${new Date().toLocaleTimeString()}`;
+  } catch (e) { toast('Failed to load users: ' + e.message, 'error'); }
+  finally { setLoading(false); }
+}
+
+function renderUsersTable(users) {
+  const el = document.getElementById('users-container');
+  if (!users.length) {
+    el.innerHTML = '<div class="empty-state"><div class="icon">👤</div><h2>No users yet</h2></div>';
+    return;
+  }
+
+  const rows = users.map(u => {
+    const isYou = u.username === currentUser.username;
+    return `<tr>
+      <td>
+        <strong>${escHtml(u.username)}</strong>
+        ${isYou ? '<span class="you-tag">you</span>' : ''}
+      </td>
+      <td><span class="role-badge role-${u.role}">${u.role}</span></td>
+      <td>${fmtDateTime(u.createdAt)}</td>
+      <td>
+        <div style="display:flex;gap:6px;justify-content:flex-end">
+          <button class="btn btn-ghost btn-sm" onclick="openEditUserModal('${escHtml(u.username)}','${u.role}')">✏ Edit</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteUser('${escHtml(u.username)}')"
+            ${isYou ? 'disabled title="Cannot delete yourself"' : ''}>🗑</button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+
+  el.innerHTML = `
+    <table class="users-table">
+      <thead>
+        <tr>
+          <th>Username</th>
+          <th>Role</th>
+          <th>Created</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+function openAddUserModal() {
+  document.getElementById('nu-username').value = '';
+  document.getElementById('nu-password').value = '';
+  document.getElementById('nu-confirm').value  = '';
+  document.getElementById('nu-role').value     = 'viewer';
+  document.getElementById('add-user-modal').classList.remove('hidden');
+}
+function closeAddUserModal() { document.getElementById('add-user-modal').classList.add('hidden'); }
+
+async function submitAddUser() {
+  const username = document.getElementById('nu-username').value.trim();
+  const role     = document.getElementById('nu-role').value;
+  const password = document.getElementById('nu-password').value;
+  const confirm  = document.getElementById('nu-confirm').value;
+
+  if (!username || !password) { toast('Username and password are required', 'error'); return; }
+  if (password !== confirm)   { toast('Passwords do not match', 'error'); return; }
+  if (password.length < 6)   { toast('Password must be at least 6 characters', 'error'); return; }
+
+  try {
+    await api('POST', '/api/admin/users', { username, password, role });
+    toast(`User "${username}" created`, 'success');
+    closeAddUserModal();
+    loadUsers();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+function openEditUserModal(username, role) {
+  editingUsername = username;
+  document.getElementById('eu-title').textContent = `Edit User — ${username}`;
+  document.getElementById('eu-role').value    = role;
+  document.getElementById('eu-password').value = '';
+  document.getElementById('eu-confirm').value  = '';
+  document.getElementById('edit-user-modal').classList.remove('hidden');
+}
+function closeEditUserModal() {
+  document.getElementById('edit-user-modal').classList.add('hidden');
+  editingUsername = null;
+}
+
+async function submitEditUser() {
+  const role     = document.getElementById('eu-role').value;
+  const password = document.getElementById('eu-password').value;
+  const confirm  = document.getElementById('eu-confirm').value;
+
+  if (password && password !== confirm) { toast('Passwords do not match', 'error'); return; }
+  if (password && password.length < 6) { toast('Password must be at least 6 characters', 'error'); return; }
+
+  const body = { role };
+  if (password) body.password = password;
+
+  try {
+    await api('PUT', `/api/admin/users/${encodeURIComponent(editingUsername)}`, body);
+    toast(`User "${editingUsername}" updated`, 'success');
+    closeEditUserModal();
+    loadUsers();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function deleteUser(username) {
+  if (!confirm(`Delete user "${username}"? This cannot be undone.`)) return;
+  try {
+    await api('DELETE', `/api/admin/users/${encodeURIComponent(username)}`);
+    toast(`User "${username}" deleted`, 'info');
+    loadUsers();
+  } catch (e) { toast(e.message, 'error'); }
 }
 
 /* ── Audit / Changes tab ──────────────────────────────────────────────────── */
@@ -499,13 +653,16 @@ function setLoading(on) {
 }
 
 /* ── Modal close on overlay click ─────────────────────────────────────────── */
-document.getElementById('add-modal').addEventListener('click', e => { if (e.target===e.currentTarget) closeAddModal(); });
+document.getElementById('add-modal').addEventListener('click',       e => { if (e.target===e.currentTarget) closeAddModal(); });
 document.getElementById('log-viewer-modal').addEventListener('click', e => { if (e.target===e.currentTarget) closeLogViewer(); });
+document.getElementById('add-user-modal').addEventListener('click',   e => { if (e.target===e.currentTarget) closeAddUserModal(); });
+document.getElementById('edit-user-modal').addEventListener('click',  e => { if (e.target===e.currentTarget) closeEditUserModal(); });
 
 /* ── Boot ─────────────────────────────────────────────────────────────────── */
-loadScripts();
+loadCurrentUser().then(() => loadScripts());
 refreshInterval = setInterval(() => {
   if (currentTab === 'scripts')    loadScripts();
   else if (currentTab === 'logs')  loadLogs();
   else if (currentTab === 'audit') loadAudit();
+  else if (currentTab === 'admin') loadUsers();
 }, 10000);

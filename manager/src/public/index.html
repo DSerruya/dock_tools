@@ -199,6 +199,24 @@
     .quick-pick   { background: var(--bg); border: 1px solid var(--border); color: var(--muted); border-radius: 4px; padding: 3px 8px; font-size: 11px; cursor: pointer; }
     .quick-pick:hover { border-color: var(--accent); color: var(--accent); }
 
+    /* ── Role badges ── */
+    .role-badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; }
+    .role-admin  { background: #3b0559; color: #d8b4fe; }
+    .role-agent  { background: #1e3a5f; color: #93c5fd; }
+    .role-viewer { background: #1f2937; color: #9ca3af; }
+
+    /* ── Role description cards ── */
+    .role-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+    .role-card p { font-size: 12px; color: var(--muted); line-height: 1.6; }
+
+    /* ── Users table ── */
+    .users-table { width: 100%; border-collapse: collapse; }
+    .users-table th, .users-table td { padding: 12px 14px; text-align: left; border-bottom: 1px solid var(--border); font-size: 13px; }
+    .users-table th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .4px; background: var(--surface); }
+    .users-table tr:hover td { background: #1e2130; }
+    .users-table td:last-child { text-align: right; }
+    .you-tag { font-size: 10px; color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; padding: 1px 5px; margin-left: 6px; }
+
     /* ── Audit table ── */
     .audit-action {
       display: inline-flex; align-items: center; gap: 5px;
@@ -256,6 +274,10 @@
     <button class="tab-btn active" onclick="showTab('scripts')">⚡ Scripts</button>
     <button class="tab-btn"        onclick="showTab('logs')">📋 Logs</button>
     <button class="tab-btn"        onclick="showTab('audit')">🕵 Changes</button>
+    <button class="tab-btn" id="tab-admin-btn" style="display:none" onclick="showTab('admin')">🔐 Admin</button>
+  </div>
+  <div id="user-pill" style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px">
+    <span id="user-badge" class="role-badge role-admin" style="display:none"></span>
   </div>
   <div class="header-actions">
     <span id="refresh-label" style="font-size:12px;color:var(--muted)"></span>
@@ -272,6 +294,36 @@
         <div class="icon"><span class="spinner"></span></div>
         <h2>Loading...</h2>
       </div>
+    </div>
+  </div>
+
+  <!-- ── Admin tab ── -->
+  <div id="tab-admin" class="tab-panel">
+    <div class="table-toolbar">
+      <div>
+        <h2 style="font-size:16px;font-weight:600">User Management</h2>
+        <p style="font-size:12px;color:var(--muted);margin-top:4px">Create users and assign roles. Roles control what each user can see and do.</p>
+      </div>
+      <button class="btn btn-primary" onclick="openAddUserModal()">+ Add User</button>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px">
+      <div class="role-card">
+        <span class="role-badge role-admin" style="font-size:13px;padding:4px 12px">Admin</span>
+        <p>Full access — manages users, scripts, logs, and config changes.</p>
+      </div>
+      <div class="role-card">
+        <span class="role-badge role-agent" style="font-size:13px;padding:4px 12px">Agent</span>
+        <p>Can create, start, stop, restart and run scripts. Can view logs and changes. Cannot manage users.</p>
+      </div>
+      <div class="role-card">
+        <span class="role-badge role-viewer" style="font-size:13px;padding:4px 12px">Viewer</span>
+        <p>Read-only access to scripts, logs, and config changes. No execution or user management.</p>
+      </div>
+    </div>
+
+    <div id="users-container">
+      <div class="empty-state"><div class="icon"><span class="spinner"></span></div><h2>Loading...</h2></div>
     </div>
   </div>
 
@@ -431,6 +483,77 @@
     <div class="modal-footer">
       <button class="btn btn-ghost btn-sm" onclick="scrollLogsToBottom()">↓ Bottom</button>
       <button class="btn btn-ghost" onclick="closeLogViewer()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Add User Modal ── -->
+<div id="add-user-modal" class="overlay hidden">
+  <div class="modal" style="max-width:440px">
+    <div class="modal-header">
+      <span class="modal-title">Add User</span>
+      <button class="modal-close" onclick="closeAddUserModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Username *</label>
+        <input id="nu-username" type="text" placeholder="johndoe" />
+      </div>
+      <div class="form-group">
+        <label>Role *</label>
+        <select id="nu-role">
+          <option value="viewer">Viewer — read-only</option>
+          <option value="agent">Agent — create &amp; execute</option>
+          <option value="admin">Admin — full access</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Password * <span style="font-size:10px;color:var(--muted)">(min 6 chars)</span></label>
+        <input id="nu-password" type="password" placeholder="••••••••" />
+      </div>
+      <div class="form-group">
+        <label>Confirm Password *</label>
+        <input id="nu-confirm" type="password" placeholder="••••••••" />
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeAddUserModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="submitAddUser()">Create User</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Edit User Modal ── -->
+<div id="edit-user-modal" class="overlay hidden">
+  <div class="modal" style="max-width:440px">
+    <div class="modal-header">
+      <span class="modal-title" id="eu-title">Edit User</span>
+      <button class="modal-close" onclick="closeEditUserModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Role</label>
+        <select id="eu-role">
+          <option value="viewer">Viewer — read-only</option>
+          <option value="agent">Agent — create &amp; execute</option>
+          <option value="admin">Admin — full access</option>
+        </select>
+      </div>
+      <div style="border-top:1px solid var(--border);margin:16px 0;padding-top:16px">
+        <p style="font-size:12px;color:var(--muted);margin-bottom:12px">Change password (leave blank to keep current)</p>
+        <div class="form-group">
+          <label>New Password</label>
+          <input id="eu-password" type="password" placeholder="••••••••" />
+        </div>
+        <div class="form-group">
+          <label>Confirm New Password</label>
+          <input id="eu-confirm" type="password" placeholder="••••••••" />
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeEditUserModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="submitEditUser()">Save Changes</button>
     </div>
   </div>
 </div>

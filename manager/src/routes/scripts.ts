@@ -6,6 +6,7 @@ import * as cronService   from '../services/cronService';
 import * as logService    from '../services/logService';
 import * as auditService  from '../services/auditService';
 import { getUser }        from '../utils/getUser';
+import { requireRole }    from '../middleware/auth';
 import { ScriptConfig }   from '../types';
 
 const router = Router();
@@ -21,7 +22,7 @@ router.get('/', async (_req, res) => {
   res.json(results);
 });
 
-router.post('/', async (req, res) => {
+router.post('/', requireRole('admin', 'agent'), async (req, res) => {
   const body = req.body as Partial<ScriptConfig>;
   const user = getUser(req);
 
@@ -67,7 +68,7 @@ router.post('/', async (req, res) => {
   res.status(201).json({ message: 'Script added. Cloning repository in background...' });
 });
 
-router.delete('/:name', async (req, res) => {
+router.delete('/:name', requireRole('admin'), async (req, res) => {
   const config = configService.get(req.params.name);
   if (!config) return res.status(404).json({ error: 'Script not found' });
   const user = getUser(req);
@@ -85,7 +86,7 @@ router.delete('/:name', async (req, res) => {
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
-router.post('/:name/start', async (req, res) => {
+router.post('/:name/start', requireRole('admin', 'agent'), async (req, res) => {
   const config = configService.get(req.params.name);
   if (!config) return res.status(404).json({ error: 'Script not found' });
   const user = getUser(req);
@@ -108,7 +109,7 @@ router.post('/:name/start', async (req, res) => {
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
-router.post('/:name/stop', async (req, res) => {
+router.post('/:name/stop', requireRole('admin', 'agent'), async (req, res) => {
   const config = configService.get(req.params.name);
   if (!config) return res.status(404).json({ error: 'Script not found' });
   const user = getUser(req);
@@ -122,7 +123,7 @@ router.post('/:name/stop', async (req, res) => {
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
-router.post('/:name/restart', async (req, res) => {
+router.post('/:name/restart', requireRole('admin', 'agent'), async (req, res) => {
   const config = configService.get(req.params.name);
   if (!config) return res.status(404).json({ error: 'Script not found' });
   const user = getUser(req);
@@ -142,7 +143,7 @@ router.post('/:name/restart', async (req, res) => {
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
-router.post('/:name/run-now', async (req, res) => {
+router.post('/:name/run-now', requireRole('admin', 'agent'), async (req, res) => {
   const config = configService.get(req.params.name);
   if (!config) return res.status(404).json({ error: 'Script not found' });
   const user = getUser(req);
@@ -184,7 +185,7 @@ router.get('/:name/status', async (req, res) => {
   res.json({ config, status, nextRun });
 });
 
-router.put('/:name/schedule', (req, res) => {
+router.put('/:name/schedule', requireRole('admin', 'agent'), (req, res) => {
   const config = configService.get(req.params.name);
   if (!config) return res.status(404).json({ error: 'Script not found' });
   const user = getUser(req);
@@ -204,7 +205,7 @@ router.put('/:name/schedule', (req, res) => {
   res.json({ message: 'Schedule updated', nextRun: cronService.getNextRun(config.name) });
 });
 
-router.delete('/:name/schedule', (req, res) => {
+router.delete('/:name/schedule', requireRole('admin', 'agent'), (req, res) => {
   const config = configService.get(req.params.name);
   if (!config) return res.status(404).json({ error: 'Script not found' });
   const user = getUser(req);

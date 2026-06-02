@@ -1,24 +1,14 @@
 import { Request, Response, NextFunction } from 'express';
-import * as crypto from 'crypto';
+import * as userService from '../services/userService';
 
-// Pads both buffers to the same fixed length so timingSafeEqual
-// never leaks information about string length differences.
-function safeEqual(a: string, b: string): boolean {
-  const len = 512;
-  const aBuf = Buffer.alloc(len);
-  const bBuf = Buffer.alloc(len);
-  aBuf.write(a, 'utf8');
-  bBuf.write(b, 'utf8');
-  return crypto.timingSafeEqual(aBuf, bBuf);
-}
+// ── Attach the authenticated user to every request ───────────────────────────
+export async function authenticate(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const users = userService.listUsers();
 
-export function basicAuth(req: Request, res: Response, next: NextFunction): void {
-  const password = process.env.UI_PASSWORD;
-
-  // Auth is disabled when no password is configured (dev / first-run)
-  if (!password) {
-    next();
-    return;
+  // Open mode: no users configured — treat caller as anonymous admin
+  if (users.length === 0) {
+    (req as any).currentUser = { username: 'anonymous', role: 'admin' } as userService.User;
+    return next();
   }
 
   const header = req.headers['authorization'];
@@ -31,14 +21,27 @@ export function basicAuth(req: Request, res: Response, next: NextFunction): void
   const decoded  = Buffer.from(header.slice(6), 'base64').toString('utf8');
   const colonIdx = decoded.indexOf(':');
   const username = decoded.slice(0, colonIdx);
-  const inputPwd = decoded.slice(colonIdx + 1);
+  const password = decoded.slice(colonIdx + 1);
 
-  const expectedUser = process.env.UI_USERNAME || 'admin';
-
-  if (safeEqual(username, expectedUser) && safeEqual(inputPwd, password)) {
-    next();
-  } else {
+  const user = await userService.authenticate(username, password);
+  if (!user) {
     res.setHeader('WWW-Authenticate', 'Basic realm="Script Manager"');
     res.status(401).end('Unauthorized');
+    return;
   }
+
+  (req as any).currentUser = user;
+  next();
+}
+
+// ── Role guard — use as per-route middleware ──────────────────────────────────
+export function requireRole(...roles: userService.Role[]) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const user = (req as any).currentUser as userService.User | undefined;
+    if (!user || !roles.includes(user.role)) {
+      res.status(403).json({ error: `This action requires one of: ${roles.join(', ')}` });
+      return;
+    }
+    next();
+  };
 }

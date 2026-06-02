@@ -1,12 +1,10 @@
 import { Request } from 'express';
+import { User } from '../services/userService';
 
 export function getUser(req: Request): string {
-  const header = req.headers['authorization'];
-  if (!header?.startsWith('Basic ')) return 'anonymous';
-  try {
-    const decoded = Buffer.from(header.slice(6), 'base64').toString('utf8');
-    return decoded.split(':')[0] || 'anonymous';
-  } catch {
-    return 'anonymous';
-  }
+  return ((req as any).currentUser as User | undefined)?.username ?? 'anonymous';
+}
+
+export function getCurrentUser(req: Request): User | undefined {
+  return (req as any).currentUser as User | undefined;
 }
