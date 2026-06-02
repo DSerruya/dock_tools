@@ -1,0 +1,13 @@
+# Environment secrets
+.env
+
+# Runtime data — cloned repos live here, not tracked
+scripts-data/*
+!scripts-data/.gitkeep
+
+# Node
+node_modules/
+dist/
+
+# OS
+.DS_Store
