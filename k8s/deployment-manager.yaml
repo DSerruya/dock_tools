@@ -43,6 +43,11 @@ spec:
                 secretKeyRef:
                   name: dock-tools-secret
                   key: WEBHOOK_SECRET
+            - name: UI_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dock-tools-secret
+                  key: UI_PASSWORD
           volumeMounts:
             - name: docker-sock
               mountPath: /var/run/docker.sock
@@ -50,13 +55,13 @@ spec:
               mountPath: /app/scripts-data
           readinessProbe:
             httpGet:
-              path: /api/scripts
+              path: /healthz
               port: 3000
             initialDelaySeconds: 5
             periodSeconds: 5
           livenessProbe:
             httpGet:
-              path: /api/scripts
+              path: /healthz
               port: 3000
             initialDelaySeconds: 15
             periodSeconds: 20

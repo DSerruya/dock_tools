@@ -332,6 +332,27 @@ echo -e "  Examples: UTC, America/New_York, Europe/London, Asia/Tokyo\n"
 read -rp "  Timezone [default: UTC]: " DEFAULT_TZ
 DEFAULT_TZ="${DEFAULT_TZ:-UTC}"
 
+echo ""
+echo -e "  ${BOLD}Web UI Password${RESET}"
+echo -e "  Protects the dashboard with HTTP Basic Auth (username: admin)."
+echo -e "  Press Enter to skip and leave the UI open (not recommended).\n"
+while true; do
+  read -rsp "  Password: " UI_PASSWORD
+  echo ""
+  if [ -z "$UI_PASSWORD" ]; then
+    warn "No password set — the UI will be publicly accessible."
+    break
+  fi
+  read -rsp "  Confirm password: " UI_PASSWORD_CONFIRM
+  echo ""
+  if [ "$UI_PASSWORD" = "$UI_PASSWORD_CONFIRM" ]; then
+    success "Password confirmed"
+    break
+  else
+    echo -e "  ${RED}Passwords do not match — try again.${RESET}\n"
+  fi
+done
+
 # Write .env
 cat > .env << EOF
 # Script Manager — Environment Configuration
@@ -350,6 +371,10 @@ DEFAULT_TIMEZONE=${DEFAULT_TZ}
 
 # Port exposed on the host for the web UI
 MANAGER_PORT=${MANAGER_PORT}
+
+# Web UI Basic Auth (leave UI_PASSWORD empty to disable authentication)
+UI_USERNAME=admin
+UI_PASSWORD=${UI_PASSWORD}
 EOF
 
 success ".env written"
@@ -368,7 +393,11 @@ step "Waiting for manager to become healthy"
 
 MAX_WAIT=60
 WAITED=0
-until curl -sf "http://localhost:${MANAGER_PORT}/api/scripts" &>/dev/null; do
+CURL_AUTH=""
+[ -n "$UI_PASSWORD" ] && CURL_AUTH="-u admin:${UI_PASSWORD}"
+
+# shellcheck disable=SC2086
+until curl -sf $CURL_AUTH "http://localhost:${MANAGER_PORT}/api/scripts" &>/dev/null; do
   if [ "$WAITED" -ge "$MAX_WAIT" ]; then
     warn "Manager did not respond within ${MAX_WAIT}s."
     warn "Check logs with:  ${COMPOSE_CMD} logs manager"
@@ -379,7 +408,8 @@ until curl -sf "http://localhost:${MANAGER_PORT}/api/scripts" &>/dev/null; do
   echo -ne "  waiting... ${WAITED}s\r"
 done
 
-if curl -sf "http://localhost:${MANAGER_PORT}/api/scripts" &>/dev/null; then
+# shellcheck disable=SC2086
+if curl -sf $CURL_AUTH "http://localhost:${MANAGER_PORT}/api/scripts" &>/dev/null; then
   success "Manager is healthy"
 fi
 
@@ -395,6 +425,7 @@ echo -e "  ${BOLD}Web UI:${RESET}          http://${HOST_IP}:${MANAGER_PORT}"
 echo -e "  ${BOLD}Local URL:${RESET}       http://localhost:${MANAGER_PORT}"
 echo -e "  ${BOLD}Webhook base URL:${RESET} http://${HOST_IP}:${MANAGER_PORT}/webhook/<script-name>"
 echo ""
+echo -e "  ${BOLD}Login:${RESET}           admin / ${UI_PASSWORD:-'(no password set)'}"
 echo -e "  ${BOLD}Webhook secret:${RESET}  ${WEBHOOK_SECRET}"
 echo -e "  ${BOLD}Install dir:${RESET}     ${INSTALL_DIR}"
 echo ""

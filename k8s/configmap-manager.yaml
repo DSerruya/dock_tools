@@ -13,3 +13,4 @@ data:
   # These are plain Docker containers, not k8s pods.
   DOCKER_NETWORK: "bridge"
   PORT: "3000"
+  UI_USERNAME: "admin"

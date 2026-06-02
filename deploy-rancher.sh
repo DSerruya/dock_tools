@@ -67,6 +67,27 @@ echo -e "  ${BOLD}Default Timezone${RESET} (for cron schedules)"
 read -rp "  Timezone [default: UTC]: " DEFAULT_TZ
 DEFAULT_TZ="${DEFAULT_TZ:-UTC}"
 
+echo ""
+echo -e "  ${BOLD}Web UI Password${RESET}"
+echo -e "  Protects the dashboard with HTTP Basic Auth (username: admin)."
+echo -e "  Press Enter to skip and leave the UI open (not recommended).\n"
+while true; do
+  read -rsp "  Password: " UI_PASSWORD
+  echo ""
+  if [ -z "$UI_PASSWORD" ]; then
+    warn "No password set — the UI will be publicly accessible."
+    break
+  fi
+  read -rsp "  Confirm password: " UI_PASSWORD_CONFIRM
+  echo ""
+  if [ "$UI_PASSWORD" = "$UI_PASSWORD_CONFIRM" ]; then
+    success "Password confirmed"
+    break
+  else
+    echo -e "  ${RED}Passwords do not match — try again.${RESET}\n"
+  fi
+done
+
 # ─── 3. Build image ───────────────────────────
 step "Building Docker image"
 
@@ -88,6 +109,7 @@ step "Applying secret"
 kubectl create secret generic dock-tools-secret \
   --namespace="$NAMESPACE" \
   --from-literal=WEBHOOK_SECRET="$WEBHOOK_SECRET" \
+  --from-literal=UI_PASSWORD="$UI_PASSWORD" \
   --dry-run=client -o yaml | kubectl apply -f -
 
 success "Secret applied"
@@ -146,6 +168,7 @@ echo ""
 echo -e "  ${BOLD}Webhook base URL:${RESET}"
 echo -e "    http://$NODE_IP:30080/webhook/<script-name>"
 echo ""
+echo -e "  ${BOLD}Login:${RESET}           admin / ${UI_PASSWORD:-'(no password set)'}"
 echo -e "  ${BOLD}Webhook secret:${RESET}  $WEBHOOK_SECRET"
 echo ""
 echo -e "${BOLD}  Useful commands:${RESET}"
