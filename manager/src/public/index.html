@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Script Manager</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0f1117;
+      --surface:  #1a1d27;
+      --border:   #2a2d3a;
+      --text:     #e2e8f0;
+      --muted:    #6b7280;
+      --accent:   #6366f1;
+      --accent-h: #818cf8;
+      --green:    #22c55e;
+      --red:      #ef4444;
+      --yellow:   #f59e0b;
+      --blue:     #3b82f6;
+      --purple:   #a855f7;
+      --ruby:     #dc2626;
+    }
+
+    body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; font-size: 14px; min-height: 100vh; }
+
+    /* ── Header ── */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      height: 60px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky; top: 0; z-index: 10;
+    }
+    .logo { display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: 700; }
+    .logo-icon { font-size: 22px; }
+    .header-actions { display: flex; gap: 10px; align-items: center; }
+
+    /* ── Buttons ── */
+    .btn {
+      padding: 7px 14px; border-radius: 6px; border: none; cursor: pointer;
+      font-size: 13px; font-weight: 500; transition: opacity .15s, transform .1s;
+      display: inline-flex; align-items: center; gap: 5px;
+    }
+    .btn:active { transform: scale(.97); }
+    .btn-primary  { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: var(--accent-h); }
+    .btn-ghost   { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+    .btn-ghost:hover { color: var(--text); border-color: var(--muted); }
+    .btn-danger  { background: #7f1d1d; color: #fca5a5; }
+    .btn-danger:hover { background: #991b1b; }
+    .btn-sm      { padding: 4px 10px; font-size: 12px; }
+    .btn:disabled { opacity: .4; cursor: not-allowed; }
+
+    /* ── Main ── */
+    main { padding: 24px; max-width: 1400px; margin: 0 auto; }
+
+    .empty-state {
+      text-align: center; padding: 80px 20px; color: var(--muted);
+    }
+    .empty-state .icon { font-size: 48px; margin-bottom: 16px; }
+    .empty-state h2 { font-size: 18px; margin-bottom: 8px; color: var(--text); }
+
+    /* ── Grid ── */
+    .scripts-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+      gap: 16px;
+    }
+
+    /* ── Card ── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 18px;
+      transition: border-color .2s;
+    }
+    .card:hover { border-color: #3a3d4a; }
+
+    .card-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 12px; }
+    .card-title  { display: flex; align-items: center; gap: 8px; }
+    .card-name   { font-size: 15px; font-weight: 600; }
+
+    .badge {
+      padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: .4px;
+    }
+    .badge-python     { background: #1e3a5f; color: #60a5fa; }
+    .badge-ruby       { background: #3b0d0d; color: #f87171; }
+    .badge-node       { background: #14301a; color: #4ade80; }
+    .badge-typescript { background: #1e2a50; color: #93c5fd; }
+
+    .status-dot {
+      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 2px;
+    }
+    .status-running   { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .status-stopped   { background: var(--muted); }
+    .status-error     { background: var(--red); box-shadow: 0 0 6px var(--red); }
+    .status-not_cloned{ background: var(--yellow); }
+    .status-scheduled { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+
+    .status-label { font-size: 12px; color: var(--muted); }
+
+    .card-meta { font-size: 12px; color: var(--muted); margin-bottom: 12px; line-height: 1.8; }
+    .card-meta span { display: block; }
+    .card-meta a { color: var(--muted); text-decoration: none; }
+    .card-meta a:hover { color: var(--text); }
+
+    .webhook-row {
+      display: flex; align-items: center; gap: 6px;
+      background: #12141d; border: 1px solid var(--border);
+      border-radius: 6px; padding: 6px 10px; margin-bottom: 12px;
+      font-size: 11px; color: var(--muted); overflow: hidden;
+    }
+    .webhook-url { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .copy-btn { flex-shrink: 0; cursor: pointer; color: var(--muted); padding: 2px; border: none; background: none; }
+    .copy-btn:hover { color: var(--text); }
+
+    .card-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+    /* ── Schedule info ── */
+    .schedule-info {
+      background: #12141d; border: 1px solid var(--border);
+      border-radius: 6px; padding: 8px 10px; margin-bottom: 12px;
+      font-size: 12px;
+    }
+    .schedule-row { display: flex; justify-content: space-between; color: var(--muted); }
+    .schedule-cron { font-family: monospace; color: var(--accent); }
+
+    /* ── Modal ── */
+    .overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,.7);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 100; padding: 20px;
+    }
+    .overlay.hidden { display: none; }
+
+    .modal {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; width: 100%; max-width: 560px;
+      max-height: 90vh; overflow-y: auto;
+    }
+    .modal-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 18px 20px 14px; border-bottom: 1px solid var(--border);
+    }
+    .modal-title { font-size: 16px; font-weight: 600; }
+    .modal-close { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 20px; line-height: 1; }
+    .modal-close:hover { color: var(--text); }
+    .modal-body  { padding: 20px; }
+    .modal-footer{ padding: 14px 20px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; }
+
+    /* ── Form ── */
+    .form-group { margin-bottom: 14px; }
+    .form-row    { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    label { display: block; font-size: 12px; font-weight: 500; color: var(--muted); margin-bottom: 5px; text-transform: uppercase; letter-spacing: .4px; }
+    input, select, textarea {
+      width: 100%; background: var(--bg); border: 1px solid var(--border);
+      border-radius: 6px; color: var(--text); padding: 8px 10px;
+      font-size: 13px; font-family: inherit; transition: border-color .15s;
+    }
+    input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
+    input::placeholder { color: var(--muted); }
+    textarea { resize: vertical; min-height: 60px; }
+
+    .run-mode-toggle { display: flex; gap: 0; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+    .run-mode-toggle input { display: none; }
+    .run-mode-toggle label {
+      flex: 1; text-align: center; padding: 7px; cursor: pointer;
+      background: var(--bg); color: var(--muted); font-size: 13px;
+      text-transform: none; letter-spacing: 0; margin: 0;
+      transition: background .15s, color .15s;
+    }
+    .run-mode-toggle input:checked + label { background: var(--accent); color: #fff; }
+
+    .env-row { display: flex; gap: 6px; margin-bottom: 6px; }
+    .env-row input { flex: 1; }
+    .env-remove { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 6px; padding: 0 8px; cursor: pointer; }
+    .env-remove:hover { color: var(--red); border-color: var(--red); }
+
+    .cron-preview { font-size: 12px; color: var(--accent); margin-top: 5px; min-height: 16px; }
+    .cron-error   { color: var(--red); }
+
+    .quick-picks { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+    .quick-pick  {
+      background: var(--bg); border: 1px solid var(--border); color: var(--muted);
+      border-radius: 4px; padding: 3px 8px; font-size: 11px; cursor: pointer;
+    }
+    .quick-pick:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* ── Logs modal ── */
+    .logs-modal { max-width: 800px; }
+    .logs-output {
+      background: #0a0c12; border: 1px solid var(--border); border-radius: 6px;
+      padding: 12px; font-family: 'Courier New', monospace; font-size: 12px;
+      color: #a3e635; overflow-y: auto; max-height: 500px; white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .logs-empty { color: var(--muted); font-style: italic; }
+
+    /* ── Toast ── */
+    #toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 200; display: flex; flex-direction: column; gap: 8px; }
+    .toast {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 8px; padding: 10px 14px; font-size: 13px;
+      box-shadow: 0 4px 12px rgba(0,0,0,.4);
+      animation: slide-in .2s ease;
+      display: flex; align-items: center; gap: 8px; min-width: 240px;
+    }
+    .toast-success { border-left: 3px solid var(--green); }
+    .toast-error   { border-left: 3px solid var(--red); }
+    .toast-info    { border-left: 3px solid var(--accent); }
+    @keyframes slide-in { from { transform: translateX(20px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+    /* ── Loader ── */
+    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .loading-bar {
+      height: 2px; background: var(--accent);
+      position: fixed; top: 0; left: 0; z-index: 999;
+      transition: width .3s;
+    }
+  </style>
+</head>
+<body>
+
+<div id="loading-bar" class="loading-bar" style="width:0"></div>
+
+<header>
+  <div class="logo">
+    <span class="logo-icon">⚙️</span>
+    <span>Script Manager</span>
+  </div>
+  <div class="header-actions">
+    <span id="refresh-label" style="font-size:12px;color:var(--muted)"></span>
+    <button class="btn btn-ghost btn-sm" onclick="loadScripts()">↺ Refresh</button>
+    <button class="btn btn-primary" onclick="openAddModal()">+ Add Script</button>
+  </div>
+</header>
+
+<main>
+  <div id="scripts-container">
+    <div class="empty-state">
+      <div class="icon"><span class="spinner"></span></div>
+      <h2>Loading...</h2>
+    </div>
+  </div>
+</main>
+
+<!-- ── Add Script Modal ── -->
+<div id="add-modal" class="overlay hidden">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Add Script</span>
+      <button class="modal-close" onclick="closeAddModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Name *</label>
+          <input id="f-name" type="text" placeholder="my-script" />
+        </div>
+        <div class="form-group">
+          <label>Language *</label>
+          <select id="f-lang">
+            <option value="python">Python</option>
+            <option value="ruby">Ruby</option>
+            <option value="node">Node.js</option>
+            <option value="typescript">TypeScript</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>GitHub Repo URL *</label>
+        <input id="f-repo" type="text" placeholder="https://github.com/you/my-script" />
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Branch</label>
+          <input id="f-branch" type="text" placeholder="main" value="main" />
+        </div>
+        <div class="form-group">
+          <label>Entry Point *</label>
+          <input id="f-entry" type="text" placeholder="main.py" />
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Run Mode</label>
+        <div class="run-mode-toggle">
+          <input type="radio" name="run-mode" id="rm-persistent" value="persistent" checked />
+          <label for="rm-persistent">⚡ Persistent</label>
+          <input type="radio" name="run-mode" id="rm-scheduled" value="scheduled" />
+          <label for="rm-scheduled">🕐 Scheduled (Cron)</label>
+        </div>
+      </div>
+
+      <div id="persistent-fields">
+        <div class="form-group">
+          <label>Port (optional)</label>
+          <input id="f-port" type="number" placeholder="8080" />
+        </div>
+      </div>
+
+      <div id="scheduled-fields" style="display:none">
+        <div class="form-group">
+          <label>Cron Schedule *</label>
+          <input id="f-schedule" type="text" placeholder="*/5 * * * *" oninput="updateCronPreview()" />
+          <div class="quick-picks">
+            <span class="quick-pick" onclick="setCron('*/5 * * * *')">Every 5 min</span>
+            <span class="quick-pick" onclick="setCron('*/30 * * * *')">Every 30 min</span>
+            <span class="quick-pick" onclick="setCron('0 * * * *')">Every hour</span>
+            <span class="quick-pick" onclick="setCron('0 9 * * *')">Daily 9am</span>
+            <span class="quick-pick" onclick="setCron('0 9 * * 1')">Weekly Mon</span>
+            <span class="quick-pick" onclick="setCron('0 0 1 * *')">Monthly</span>
+          </div>
+          <div id="cron-preview" class="cron-preview"></div>
+        </div>
+        <div class="form-group">
+          <label>Timezone</label>
+          <select id="f-timezone">
+            <option value="UTC">UTC</option>
+            <option value="America/New_York">America/New_York</option>
+            <option value="America/Los_Angeles">America/Los_Angeles</option>
+            <option value="America/Chicago">America/Chicago</option>
+            <option value="Europe/London">Europe/London</option>
+            <option value="Europe/Paris">Europe/Paris</option>
+            <option value="Europe/Berlin">Europe/Berlin</option>
+            <option value="Asia/Tokyo">Asia/Tokyo</option>
+            <option value="Asia/Shanghai">Asia/Shanghai</option>
+            <option value="Asia/Kolkata">Asia/Kolkata</option>
+            <option value="Australia/Sydney">Australia/Sydney</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Environment Variables</label>
+        <div id="env-rows"></div>
+        <button class="btn btn-ghost btn-sm" onclick="addEnvRow()" style="margin-top:6px">+ Add Variable</button>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeAddModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="submitAdd()">Add Script</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Logs Modal ── -->
+<div id="logs-modal" class="overlay hidden">
+  <div class="modal logs-modal" style="max-width:800px">
+    <div class="modal-header">
+      <span class="modal-title" id="logs-title">Logs</span>
+      <button class="modal-close" onclick="closeLogs()">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="logs-output" class="logs-output logs-empty">Loading...</div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost btn-sm" onclick="refreshLogs()">↺ Refresh</button>
+      <button class="btn btn-ghost" onclick="closeLogs()">Close</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

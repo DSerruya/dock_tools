@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  manager:
+    build: ./manager
+    container_name: script-manager
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./scripts-data:/app/scripts-data
+    environment:
+      - NODE_ENV=production
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET:-changeme_secret}
+      - HOST_SCRIPTS_DATA_PATH=${HOST_SCRIPTS_DATA_PATH}
+      - DEFAULT_TIMEZONE=${DEFAULT_TIMEZONE:-UTC}
+      - DOCKER_NETWORK=script-network
+    restart: unless-stopped
+    networks:
+      - script-network
+
+  nginx:
+    image: nginx:alpine
+    container_name: script-nginx
+    ports:
+      - "${MANAGER_PORT:-80}:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - manager
+    restart: unless-stopped
+    networks:
+      - script-network
+
+networks:
+  script-network:
+    name: script-network
+    driver: bridge
