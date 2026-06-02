@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: manager
+  namespace: dock-tools
+  labels:
+    app: manager
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: manager
+  strategy:
+    type: Recreate   # only one instance can hold the Docker socket safely
+  template:
+    metadata:
+      labels:
+        app: manager
+    spec:
+      serviceAccountName: default
+
+      initContainers:
+        # Ensure the scripts-data directory exists on the node
+        - name: init-data-dir
+          image: busybox:latest
+          command: ["mkdir", "-p", "/data"]
+          volumeMounts:
+            - name: scripts-data
+              mountPath: /data
+
+      containers:
+        - name: manager
+          image: dock-tools-manager:latest
+          imagePullPolicy: Never   # use image built locally on the node
+          ports:
+            - containerPort: 3000
+          envFrom:
+            - configMapRef:
+                name: manager-config
+          env:
+            - name: WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: dock-tools-secret
+                  key: WEBHOOK_SECRET
+          volumeMounts:
+            - name: docker-sock
+              mountPath: /var/run/docker.sock
+            - name: scripts-data
+              mountPath: /app/scripts-data
+          readinessProbe:
+            httpGet:
+              path: /api/scripts
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /api/scripts
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+
+      volumes:
+        - name: docker-sock
+          hostPath:
+            path: /var/run/docker.sock
+            type: Socket
+        - name: scripts-data
+          hostPath:
+            path: /opt/dock-tools/scripts-data
+            type: DirectoryOrCreate

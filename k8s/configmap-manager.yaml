@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: manager-config
+  namespace: dock-tools
+data:
+  # Absolute path on the k3s NODE where cloned repos live.
+  # Must match the hostPath.path in deployment-manager.yaml.
+  # Docker daemon on the node uses this path when mounting into script containers.
+  HOST_SCRIPTS_DATA_PATH: "/opt/dock-tools/scripts-data"
+  DEFAULT_TIMEZONE: "UTC"
+  # Use Docker's default bridge network for script containers.
+  # These are plain Docker containers, not k8s pods.
+  DOCKER_NETWORK: "bridge"
+  PORT: "3000"

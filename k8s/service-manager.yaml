@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: manager
+  namespace: dock-tools
+spec:
+  selector:
+    app: manager
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
