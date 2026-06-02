@@ -3,6 +3,7 @@ import * as crypto from 'crypto';
 import * as configService from '../services/configService';
 import * as gitService from '../services/gitService';
 import * as dockerService from '../services/dockerService';
+import * as logService from '../services/logService';
 
 const router = Router();
 
@@ -46,7 +47,10 @@ router.post('/:name', (req: Request, res: Response) => {
       configService.save(updated);
 
       if (config.runMode === 'persistent') {
-        await dockerService.restart(updated);
+        const activeRun = logService.findRunningRun(name);
+        if (activeRun) logService.markRunFailed(activeRun.runId, 'Restarted via webhook');
+        const runId = logService.createRun(updated.name, updated.language, updated.runMode);
+        await dockerService.restart(updated, runId);
         console.log(`[webhook] Restarted "${name}"`);
       } else {
         console.log(`[webhook] Pulled "${name}" — new code will run on next scheduled tick`);

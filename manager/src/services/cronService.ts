@@ -3,6 +3,7 @@ import { parseExpression } from 'cron-parser';
 import { ScriptConfig } from '../types';
 import * as dockerService from './dockerService';
 import * as configService from './configService';
+import * as logService from './logService';
 
 const jobs = new Map<string, nodeCron.ScheduledTask>();
 const running = new Set<string>();
@@ -31,13 +32,16 @@ async function executeScript(config: ScriptConfig): Promise<void> {
     return;
   }
   running.add(config.name);
+  const runId = logService.createRun(config.name, config.language, config.runMode);
   try {
-    console.log(`[cron] Starting ${config.name}`);
-    const result = await dockerService.runOnce(config);
+    console.log(`[cron] Starting ${config.name} (runId: ${runId})`);
+    const result = await dockerService.runOnce(config, runId);
+    logService.finishRun(runId, result.exitCode);
     const saved = configService.get(config.name);
     if (saved) configService.save({ ...saved, lastRun: new Date().toISOString() });
     console.log(`[cron] ${config.name} exited with code ${result.exitCode}`);
-  } catch (err) {
+  } catch (err: any) {
+    logService.markRunFailed(runId, err?.message);
     console.error(`[cron] ${config.name} error:`, err);
   } finally {
     running.delete(config.name);

@@ -3,6 +3,7 @@ import * as configService from '../services/configService';
 import * as dockerService from '../services/dockerService';
 import * as gitService from '../services/gitService';
 import * as cronService from '../services/cronService';
+import * as logService from '../services/logService';
 import { ScriptConfig } from '../types';
 
 const router = Router();
@@ -10,8 +11,8 @@ const router = Router();
 router.get('/', async (_req, res) => {
   const configs = configService.loadAll();
   const results = await Promise.all(configs.map(async config => {
-    const cloned = gitService.isCloned(config.name);
-    const status = cloned ? await dockerService.getStatus(config.name) : 'not_cloned';
+    const cloned  = gitService.isCloned(config.name);
+    const status  = cloned ? await dockerService.getStatus(config.name) : 'not_cloned';
     const nextRun = config.runMode === 'scheduled' ? cronService.getNextRun(config.name) : null;
     return { config, status, nextRun };
   }));
@@ -21,43 +22,39 @@ router.get('/', async (_req, res) => {
 router.post('/', async (req, res) => {
   const body = req.body as Partial<ScriptConfig>;
 
-  if (!body.name || !body.language || !body.repo || !body.entryPoint) {
+  if (!body.name || !body.language || !body.repo || !body.entryPoint)
     return res.status(400).json({ error: 'name, language, repo, and entryPoint are required' });
-  }
-  if (!/^[a-z0-9-]+$/.test(body.name)) {
+  if (!/^[a-z0-9-]+$/.test(body.name))
     return res.status(400).json({ error: 'name must be lowercase letters, numbers, and hyphens only' });
-  }
-  if (configService.get(body.name)) {
+  if (configService.get(body.name))
     return res.status(409).json({ error: `Script "${body.name}" already exists` });
-  }
-  if (body.runMode === 'scheduled' && body.schedule && !cronService.isValidExpression(body.schedule)) {
+  if (body.runMode === 'scheduled' && body.schedule && !cronService.isValidExpression(body.schedule))
     return res.status(400).json({ error: 'Invalid cron expression' });
-  }
 
   const config: ScriptConfig = {
-    name: body.name,
-    language: body.language,
-    repo: body.repo,
+    name:       body.name,
+    language:   body.language,
+    repo:       body.repo,
     entryPoint: body.entryPoint,
-    branch: body.branch || 'main',
-    runMode: body.runMode || 'persistent',
-    port: body.port,
-    env: body.env,
-    schedule: body.schedule,
-    timezone: body.timezone,
-    createdAt: new Date().toISOString(),
+    branch:     body.branch    || 'main',
+    runMode:    body.runMode   || 'persistent',
+    port:       body.port,
+    env:        body.env,
+    schedule:   body.schedule,
+    timezone:   body.timezone,
+    createdAt:  new Date().toISOString(),
   };
 
   configService.save(config);
 
-  // Clone and start in background
   setImmediate(async () => {
     try {
       await gitService.cloneOrPull(config);
       configService.save({ ...config, lastSync: new Date().toISOString() });
 
       if (config.runMode === 'persistent') {
-        await dockerService.start(config);
+        const runId = logService.createRun(config.name, config.language, config.runMode);
+        await dockerService.start(config, runId);
       } else if (config.runMode === 'scheduled' && config.schedule) {
         cronService.register(config);
       }
@@ -74,6 +71,10 @@ router.delete('/:name', async (req, res) => {
   if (!config) return res.status(404).json({ error: 'Script not found' });
 
   try {
+    // Mark any active run as stopped
+    const activeRun = logService.findRunningRun(req.params.name);
+    if (activeRun) logService.markRunFailed(activeRun.runId, 'Script deleted');
+
     cronService.unregister(req.params.name);
     await dockerService.removeContainer(req.params.name);
     configService.remove(req.params.name);
@@ -92,8 +93,11 @@ router.post('/:name/start', async (req, res) => {
     configService.save({ ...config, lastSync: new Date().toISOString() });
 
     if (config.runMode === 'persistent') {
-      await dockerService.start(config);
-      res.json({ message: 'Script started' });
+      const activeRun = logService.findRunningRun(config.name);
+      if (activeRun) logService.markRunFailed(activeRun.runId, 'Script restarted');
+      const runId = logService.createRun(config.name, config.language, config.runMode);
+      await dockerService.start(config, runId);
+      res.json({ message: 'Script started', runId });
     } else {
       if (config.schedule) cronService.register(config);
       res.json({ message: 'Scheduled script registered. Use "Run Now" to trigger immediately.' });
@@ -109,6 +113,10 @@ router.post('/:name/stop', async (req, res) => {
 
   try {
     await dockerService.stop(req.params.name);
+    // finishRun will be called by the stream-end handler in dockerService;
+    // mark explicitly here in case the stream was already closed.
+    const activeRun = logService.findRunningRun(req.params.name);
+    if (activeRun) logService.finishRun(activeRun.runId, 0);
     res.json({ message: 'Script stopped' });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -123,8 +131,13 @@ router.post('/:name/restart', async (req, res) => {
     await gitService.pull(config);
     const updated = { ...config, lastSync: new Date().toISOString() };
     configService.save(updated);
-    await dockerService.restart(updated);
-    res.json({ message: 'Script restarted with latest code' });
+
+    const activeRun = logService.findRunningRun(config.name);
+    if (activeRun) logService.markRunFailed(activeRun.runId, 'Script restarted');
+
+    const runId = logService.createRun(config.name, config.language, config.runMode);
+    await dockerService.restart(updated, runId);
+    res.json({ message: 'Script restarted with latest code', runId });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -134,18 +147,20 @@ router.post('/:name/run-now', async (req, res) => {
   const config = configService.get(req.params.name);
   if (!config) return res.status(404).json({ error: 'Script not found' });
 
-  if (!gitService.isCloned(config.name)) {
+  if (!gitService.isCloned(config.name))
     return res.status(400).json({ error: 'Repository not cloned yet. Start the script first.' });
-  }
 
-  res.json({ message: 'Execution triggered' });
+  const runId = logService.createRun(config.name, config.language, config.runMode);
+  res.json({ message: 'Execution triggered', runId });
 
   setImmediate(async () => {
     try {
-      const result = await dockerService.runOnce(config);
+      const result = await dockerService.runOnce(config, runId);
+      logService.finishRun(runId, result.exitCode);
       configService.save({ ...config, lastRun: new Date().toISOString() });
       console.log(`[run-now] ${config.name} exited with code ${result.exitCode}`);
-    } catch (err) {
+    } catch (err: any) {
+      logService.markRunFailed(runId, err.message);
       console.error(`[run-now] ${config.name}:`, err);
     }
   });
@@ -168,8 +183,8 @@ router.get('/:name/status', async (req, res) => {
   const config = configService.get(req.params.name);
   if (!config) return res.status(404).json({ error: 'Script not found' });
 
-  const cloned = gitService.isCloned(config.name);
-  const status = cloned ? await dockerService.getStatus(config.name) : 'not_cloned';
+  const cloned  = gitService.isCloned(config.name);
+  const status  = cloned ? await dockerService.getStatus(config.name) : 'not_cloned';
   const nextRun = config.runMode === 'scheduled' ? cronService.getNextRun(config.name) : null;
   res.json({ config, status, nextRun });
 });
@@ -180,9 +195,8 @@ router.put('/:name/schedule', (req, res) => {
 
   const { schedule, timezone } = req.body;
   if (!schedule) return res.status(400).json({ error: 'schedule is required' });
-  if (!cronService.isValidExpression(schedule)) {
+  if (!cronService.isValidExpression(schedule))
     return res.status(400).json({ error: 'Invalid cron expression' });
-  }
 
   const updated = { ...config, schedule, timezone: timezone || config.timezone, runMode: 'scheduled' as const };
   configService.save(updated);
