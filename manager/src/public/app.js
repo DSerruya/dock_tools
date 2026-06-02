@@ -202,6 +202,7 @@ function renderCard({ config, status, nextRun }) {
         ${writeActions}
         ${editBtn}
         <button class="btn btn-ghost btn-sm" onclick="showTab('logs');filterLogs('${config.name}')">📋 Logs</button>
+        <button class="btn btn-ghost btn-sm" onclick="downloadScript('${escHtml(config.name)}')" title="Download cloned repo as .tar.gz">⬇</button>
         ${deleteBtn}
       </div>
     </div>`;
@@ -228,6 +229,29 @@ async function editScript(name) {
     const { config } = await api('GET', `/api/scripts/${encodeURIComponent(name)}/status`);
     openEditModal(config);
   } catch (e) { toast('Failed to load config: ' + e.message, 'error'); }
+}
+
+/* ── Download helpers ─────────────────────────────────────────────────────── */
+async function triggerDownload(url, filename) {
+  try {
+    const r = await fetch(url);
+    if (!r.ok) { toast('Download failed: ' + (await r.text()), 'error'); return; }
+    const blob = await r.blob();
+    const a    = document.createElement('a');
+    a.href     = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  } catch (e) { toast('Download failed: ' + e.message, 'error'); }
+}
+
+async function exportScripts() {
+  const date = new Date().toISOString().slice(0, 10);
+  await triggerDownload('/api/export', `scripts-export-${date}.json`);
+}
+
+async function downloadScript(name) {
+  await triggerDownload(`/api/scripts/${encodeURIComponent(name)}/download`, `${name}.tar.gz`);
 }
 
 async function deleteScript(name) {

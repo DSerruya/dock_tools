@@ -6,6 +6,7 @@ import webhooksRouter from './routes/webhooks';
 import logsRouter     from './routes/logs';
 import auditRouter    from './routes/audit';
 import adminRouter    from './routes/admin';
+import exportRouter   from './routes/export';
 import { authenticate } from './middleware/auth';
 import * as configService from './services/configService';
 import * as cronService   from './services/cronService';
@@ -44,6 +45,7 @@ app.use('/api',          schedulesRouter);
 app.use('/api/logs',     logsRouter);
 app.use('/api/audit',    auditRouter);
 app.use('/api/admin',    adminRouter);
+app.use('/api/export',   exportRouter);
 
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));

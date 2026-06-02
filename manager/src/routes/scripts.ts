@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import * as path from 'path';
+import { spawn } from 'child_process';
 import * as configService from '../services/configService';
 import * as dockerService from '../services/dockerService';
 import * as gitService    from '../services/gitService';
@@ -295,6 +297,37 @@ router.delete('/:name/schedule', requireRole('admin', 'agent'), (req, res) => {
     auditService.diffConfigs(config, updated)
   );
   res.json({ message: 'Schedule removed — switched to persistent mode' });
+});
+
+// GET /api/scripts/:name/download — streams the cloned repo as a .tar.gz archive
+router.get('/:name/download', (req, res) => {
+  const config = configService.get(req.params.name);
+  if (!config) return res.status(404).json({ error: 'Script not found' });
+
+  if (!gitService.isCloned(config.name))
+    return res.status(400).json({ error: 'Repository not cloned yet. Start the script first.' });
+
+  const repoPath = gitService.getLocalPath(config.name);
+  const filename = `${config.name}.tar.gz`;
+
+  res.setHeader('Content-Type', 'application/gzip');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+
+  // tar -czf - -C <parentDir> <repoDir>
+  const tar = spawn('tar', [
+    '-czf', '-',
+    '-C', path.dirname(repoPath),
+    path.basename(repoPath),
+  ]);
+
+  tar.stdout.pipe(res);
+
+  tar.on('error', err => {
+    console.error(`[download] tar error for ${config.name}:`, err);
+    if (!res.headersSent) res.status(500).json({ error: err.message });
+  });
+
+  tar.stderr.on('data', () => { /* suppress tar warnings */ });
 });
 
 export default router;
