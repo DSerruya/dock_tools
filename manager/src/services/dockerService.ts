@@ -89,11 +89,14 @@ async function createContainer(config: ScriptConfig, restartPolicy: string): Pro
       Binds:         [bindMount],
       RestartPolicy: { Name: restartPolicy },
       NetworkMode:   DOCKER_NETWORK,
-      // Hardened defaults — these fields are set here and are not user-configurable
-      Privileged:    false,
-      CapAdd:        [],
-      CapDrop:       ['ALL'],
-      ReadonlyRootfs: false, // app needs to write node_modules etc.
+      // Hardened defaults — not user-configurable.
+      // Privileged stays false (most important guard).
+      // Drop NET_RAW (raw packet crafting/sniffing) — the one default cap
+      // that is genuinely dangerous. CapDrop ALL would break apt-get because
+      // it needs SETUID/SETGID to drop to the _apt user during package installs.
+      Privileged: false,
+      CapAdd:     [],
+      CapDrop:    ['NET_RAW'],
     },
   };
 
