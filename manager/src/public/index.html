@@ -201,6 +201,9 @@
     .env-row input { flex: 1; }
     .env-remove { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 6px; padding: 0 8px; cursor: pointer; }
     .env-remove:hover { color: var(--red); border-color: var(--red); }
+    .env-paste-area { display: none; margin-top: 8px; }
+    .env-paste-area textarea { width: 100%; height: 120px; font-family: monospace; font-size: 12px; resize: vertical; box-sizing: border-box; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 8px; }
+    .env-paste-actions { display: flex; gap: 6px; margin-top: 6px; }
 
     .cron-preview { font-size: 12px; color: var(--accent); margin-top: 5px; min-height: 16px; }
     .quick-picks  { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
@@ -493,7 +496,17 @@
         </div>
       </div>
       <div class="form-group">
-        <label>Environment Variables</label>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <label style="margin-bottom:0">Environment Variables</label>
+          <button class="btn btn-ghost btn-sm" onclick="toggleEnvPaste()" id="env-paste-toggle">Paste .env</button>
+        </div>
+        <div class="env-paste-area" id="env-paste-area">
+          <textarea id="env-paste-input" placeholder="Paste .env content here&#10;KEY=value&#10;ANOTHER_KEY=another value"></textarea>
+          <div class="env-paste-actions">
+            <button class="btn btn-primary btn-sm" onclick="applyEnvPaste()">Apply</button>
+            <button class="btn btn-ghost btn-sm" onclick="cancelEnvPaste()">Cancel</button>
+          </div>
+        </div>
         <div id="env-rows"></div>
         <button class="btn btn-ghost btn-sm" onclick="addEnvRow()" style="margin-top:6px">+ Add Variable</button>
       </div>

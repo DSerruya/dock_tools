@@ -805,6 +805,7 @@ function resetForm() {
   document.getElementById('f-timezone').value  = 'UTC';
   document.getElementById('rm-persistent').checked = true;
   document.getElementById('env-rows').innerHTML    = '';
+  cancelEnvPaste();
   document.getElementById('cron-preview').textContent = '';
   document.getElementById('f-token').placeholder = 'ghp_xxxxxxxxxxxxxxxxxxxx';
   onBuildCmdChange();
@@ -833,6 +834,7 @@ function populateScriptForm(config) {
   document.getElementById('f-timezone').value = config.timezone  || 'UTC';
 
   document.getElementById('env-rows').innerHTML = '';
+  cancelEnvPaste();
   Object.entries(config.env || {}).forEach(([k, v]) => addEnvRow(k, v));
 
   onBuildCmdChange();
@@ -866,6 +868,47 @@ function addEnvRow(k, v) {
     <input type="text" placeholder="value" value="${escHtml(v||'')}" class="env-val" />
     <button class="env-remove" onclick="this.parentElement.remove()">×</button>`;
   document.getElementById('env-rows').appendChild(row);
+}
+
+function toggleEnvPaste() {
+  const area = document.getElementById('env-paste-area');
+  const isHidden = area.style.display === 'none' || area.style.display === '';
+  area.style.display = isHidden ? 'block' : 'none';
+  if (isHidden) {
+    document.getElementById('env-paste-input').value = '';
+    document.getElementById('env-paste-input').focus();
+  }
+}
+
+function applyEnvPaste() {
+  const text = document.getElementById('env-paste-input').value;
+  const parsed = parseEnvText(text);
+  if (Object.keys(parsed).length === 0) return;
+  Object.entries(parsed).forEach(([k, v]) => addEnvRow(k, v));
+  cancelEnvPaste();
+}
+
+function cancelEnvPaste() {
+  document.getElementById('env-paste-area').style.display = 'none';
+  document.getElementById('env-paste-input').value = '';
+}
+
+function parseEnvText(text) {
+  const result = {};
+  text.split('\n').forEach(line => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) return;
+    const eqIdx = trimmed.indexOf('=');
+    if (eqIdx < 1) return;
+    const key = trimmed.slice(0, eqIdx).trim();
+    let val = trimmed.slice(eqIdx + 1).trim();
+    // strip surrounding quotes
+    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+      val = val.slice(1, -1);
+    }
+    if (key) result[key] = val;
+  });
+  return result;
 }
 
 function setCron(expr) { document.getElementById('f-schedule').value = expr; updateCronPreview(); }
