@@ -412,10 +412,14 @@
   <!-- ── Audit / Changes tab ── -->
   <div id="tab-audit" class="tab-panel">
     <div class="table-toolbar">
-      <div style="display:flex;gap:8px;align-items:center">
-        <label style="margin:0;text-transform:none;letter-spacing:0;color:var(--muted)">Filter script:</label>
-        <select id="audit-filter" onchange="loadAudit()" style="width:200px">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <label style="margin:0;text-transform:none;letter-spacing:0;color:var(--muted)">Script:</label>
+        <select id="audit-filter" onchange="loadAudit()" style="width:180px">
           <option value="">All scripts</option>
+        </select>
+        <label style="margin:0;text-transform:none;letter-spacing:0;color:var(--muted)">Action:</label>
+        <select id="audit-action-filter" onchange="applyAuditFilters()" style="width:180px">
+          <option value="">All actions</option>
         </select>
       </div>
       <span id="audit-count" style="font-size:12px;color:var(--muted)"></span>

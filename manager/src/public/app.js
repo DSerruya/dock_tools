@@ -686,25 +686,46 @@ function renderChanges(changes) {
     </div>`).join('')}</div>`;
 }
 
+let _allAuditEntries = [];
+
 async function loadAudit() {
   setLoading(true);
   try {
     const scripts = await api('GET', '/api/scripts').catch(() => []);
-    const sel = document.getElementById('audit-filter');
-    const cur = sel.value;
-    sel.innerHTML = '<option value="">All scripts</option>' +
-      scripts.map(s => `<option value="${escHtml(s.config.name)}"${s.config.name===cur?' selected':''}>${escHtml(s.config.name)}</option>`).join('');
-    if (cur) sel.value = cur;
 
-    const filter  = sel.value;
+    // Populate script filter
+    const scriptSel = document.getElementById('audit-filter');
+    const curScript = scriptSel.value;
+    scriptSel.innerHTML = '<option value="">All scripts</option>' +
+      scripts.map(s => `<option value="${escHtml(s.config.name)}"${s.config.name===curScript?' selected':''}>${escHtml(s.config.name)}</option>`).join('');
+    if (curScript) scriptSel.value = curScript;
+
+    const filter  = scriptSel.value;
     const url     = filter ? `/api/audit?script=${encodeURIComponent(filter)}` : '/api/audit';
-    const entries = await api('GET', url);
+    _allAuditEntries = await api('GET', url);
 
-    document.getElementById('audit-count').textContent = `${entries.length} entr${entries.length===1?'y':'ies'}`;
-    renderAuditTable(entries);
+    // Populate action filter from actual data
+    const actionSel = document.getElementById('audit-action-filter');
+    const curAction = actionSel.value;
+    const actions   = [...new Set(_allAuditEntries.map(e => e.action))].sort();
+    actionSel.innerHTML = '<option value="">All actions</option>' +
+      actions.map(a => {
+        const meta = ACTION_META[a] || { icon: '•', label: a };
+        return `<option value="${escHtml(a)}"${a===curAction?' selected':''}>${meta.icon} ${escHtml(meta.label)}</option>`;
+      }).join('');
+    if (curAction && actions.includes(curAction)) actionSel.value = curAction;
+
     document.getElementById('refresh-label').textContent = `Updated ${new Date().toLocaleTimeString()}`;
+    applyAuditFilters();
   } catch (e) { toast('Failed to load audit log: ' + e.message, 'error'); }
   finally { setLoading(false); }
+}
+
+function applyAuditFilters() {
+  const action  = document.getElementById('audit-action-filter').value;
+  const entries = action ? _allAuditEntries.filter(e => e.action === action) : _allAuditEntries;
+  document.getElementById('audit-count').textContent = `${entries.length} entr${entries.length===1?'y':'ies'}`;
+  renderAuditTable(entries);
 }
 
 function renderAuditTable(entries) {
