@@ -759,6 +759,14 @@ function closeLogViewer() {
   document.getElementById('lv-live-badge').style.display = 'none';
 }
 
+async function copyLogs() {
+  const text = document.getElementById('lv-output').textContent || '';
+  await navigator.clipboard.writeText(text);
+  const btn = document.getElementById('lv-copy-btn');
+  btn.textContent = 'Copied!';
+  setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+}
+
 function scrollLogsToBottom() {
   const output = document.getElementById('lv-output');
   output.scrollTop = output.scrollHeight;

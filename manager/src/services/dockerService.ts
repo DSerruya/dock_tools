@@ -10,7 +10,7 @@ const HOST_SCRIPTS_DATA_PATH = process.env.HOST_SCRIPTS_DATA_PATH || '/app/scrip
 
 const IMAGE_MAP: Record<string, string> = {
   python:     'python:3.12-slim',
-  ruby:       'ruby:3.3-slim',
+  ruby:       'ruby:3.3.8-slim',
   node:       'node:20-slim',
   typescript: 'node:20-slim',
 };
@@ -125,6 +125,9 @@ function startLogStream(container: Dockerode.Container, runId: string, scriptNam
           const c    = docker.getContainer(containerName(scriptName));
           const info = await c.inspect();
           logService.finishRun(runId, info.State.ExitCode);
+          if (info.State.ExitCode !== 0) {
+            try { await c.stop({ t: 5 }); } catch {}
+          }
         } catch {
           logService.finishRun(runId, 1);
         }
