@@ -79,7 +79,10 @@ function showTab(tab) {
   const idx = TAB_INDEX[tab] ?? 0;
   if (tabBtns[idx]) tabBtns[idx].classList.add('active');
 
-  document.getElementById('add-btn').style.display = (tab === 'scripts' && canWrite()) ? '' : 'none';
+  const addBtn = document.getElementById('add-btn');
+  const show   = tab === 'scripts' && canWrite();
+  addBtn.style.visibility   = show ? 'visible' : 'hidden';
+  addBtn.style.pointerEvents = show ? '' : 'none';
 
   if (tab === 'scripts')    loadScripts();
   else if (tab === 'logs')  loadLogs();
@@ -102,8 +105,10 @@ async function loadCurrentUser() {
     badge.textContent = `${currentUser.username} · ${currentUser.role}`;
     badge.className   = `role-badge role-${currentUser.role}`;
     badge.style.display = '';
-    // Hide add-script button for viewers
-    document.getElementById('add-btn').style.display = canWrite() ? '' : 'none';
+    // Hide add-script button for viewers (use visibility to avoid header layout shift)
+    const addBtn = document.getElementById('add-btn');
+    addBtn.style.visibility    = canWrite() ? 'visible' : 'hidden';
+    addBtn.style.pointerEvents = canWrite() ? '' : 'none';
   } catch (e) {
     console.warn('Could not load user info:', e.message);
   }
