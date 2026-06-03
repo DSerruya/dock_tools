@@ -79,10 +79,6 @@ function showTab(tab) {
   const idx = TAB_INDEX[tab] ?? 0;
   if (tabBtns[idx]) tabBtns[idx].classList.add('active');
 
-  const addBtn = document.getElementById('add-btn');
-  const show   = tab === 'scripts' && canWrite();
-  addBtn.style.visibility   = show ? 'visible' : 'hidden';
-  addBtn.style.pointerEvents = show ? '' : 'none';
 
   if (tab === 'scripts')    loadScripts();
   else if (tab === 'logs')  loadLogs();
@@ -105,10 +101,6 @@ async function loadCurrentUser() {
     badge.textContent = `${currentUser.username} · ${currentUser.role}`;
     badge.className   = `role-badge role-${currentUser.role}`;
     badge.style.display = '';
-    // Hide add-script button for viewers (use visibility to avoid header layout shift)
-    const addBtn = document.getElementById('add-btn');
-    addBtn.style.visibility    = canWrite() ? 'visible' : 'hidden';
-    addBtn.style.pointerEvents = canWrite() ? '' : 'none';
   } catch (e) {
     console.warn('Could not load user info:', e.message);
   }
@@ -132,12 +124,19 @@ async function loadScripts() {
 }
 
 function renderScripts(scripts) {
-  const el = document.getElementById('scripts-container');
+  const el      = document.getElementById('scripts-container');
+  const addCard = canWrite()
+    ? `<div class="card card-add" onclick="openAddModal()" title="Add script">
+         <span class="card-add-icon">+</span>
+         <span class="card-add-label">Add Script</span>
+       </div>`
+    : '';
+
   if (!scripts.length) {
-    el.innerHTML = `<div class="empty-state"><div class="icon">📦</div><h2>No scripts yet</h2><p style="color:var(--muted);margin-top:8px">Click "Add Script" to get started</p></div>`;
+    el.innerHTML = `<div class="scripts-grid">${addCard}</div>`;
     return;
   }
-  el.innerHTML = `<div class="scripts-grid">${scripts.map(renderCard).join('')}</div>`;
+  el.innerHTML = `<div class="scripts-grid">${scripts.map(renderCard).join('')}${addCard}</div>`;
 }
 
 function renderCard({ config, status, nextRun }) {
