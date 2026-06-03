@@ -22,8 +22,12 @@ router.post('/:name', (req: Request, res: Response) => {
   const config = configService.get(name);
   if (!config) return res.status(404).json({ error: 'Script not found' });
 
-  const signature = req.headers['x-hub-signature-256'] as string;
   const secret = process.env.WEBHOOK_SECRET || '';
+  if (!secret) {
+    return res.status(503).json({ error: 'Webhook endpoint is disabled: WEBHOOK_SECRET is not configured' });
+  }
+
+  const signature = req.headers['x-hub-signature-256'] as string;
   const rawBody = (req as any).rawBody as Buffer | undefined;
 
   if (!rawBody) return res.status(400).json({ error: 'Missing request body' });

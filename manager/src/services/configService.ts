@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { ScriptConfig } from '../types';
+import { encrypt, decrypt } from './encryptionService';
 
 const DATA_DIR = process.env.DATA_DIR || '/app/scripts-data';
 const CONFIG_FILE = path.join(DATA_DIR, 'scripts.json');
@@ -17,26 +18,40 @@ function ensureFile(): void {
 export function loadAll(): ScriptConfig[] {
   ensureFile();
   try {
-    return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')) as ScriptConfig[];
+    const configs = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')) as ScriptConfig[];
+    return configs.map(c => ({
+      ...c,
+      repoToken: c.repoToken ? decrypt(c.repoToken) : undefined,
+    }));
   } catch {
     return [];
   }
 }
 
 export function save(config: ScriptConfig): void {
-  const configs = loadAll();
-  const idx = configs.findIndex(c => c.name === config.name);
+  const raw = loadAllRaw();
+  const onDisk: ScriptConfig = {
+    ...config,
+    repoToken: config.repoToken ? encrypt(config.repoToken) : undefined,
+  };
+  const idx = raw.findIndex(c => c.name === config.name);
   if (idx >= 0) {
-    configs[idx] = config;
+    raw[idx] = onDisk;
   } else {
-    configs.push(config);
+    raw.push(onDisk);
   }
-  fs.writeFileSync(CONFIG_FILE, JSON.stringify(configs, null, 2));
+  fs.writeFileSync(CONFIG_FILE, JSON.stringify(raw, null, 2));
+}
+
+function loadAllRaw(): ScriptConfig[] {
+  ensureFile();
+  try { return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')) as ScriptConfig[]; }
+  catch { return []; }
 }
 
 export function remove(name: string): void {
-  const configs = loadAll().filter(c => c.name !== name);
-  fs.writeFileSync(CONFIG_FILE, JSON.stringify(configs, null, 2));
+  const raw = loadAllRaw().filter(c => c.name !== name);
+  fs.writeFileSync(CONFIG_FILE, JSON.stringify(raw, null, 2));
 }
 
 export function get(name: string): ScriptConfig | undefined {

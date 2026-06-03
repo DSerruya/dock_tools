@@ -62,11 +62,17 @@ const TRACKED_FIELDS: (keyof ScriptConfig)[] = [
   'schedule', 'timezone', 'port', 'env', 'language', 'repoToken',
 ];
 
-// Fields whose values should be masked in audit records
-const MASKED_FIELDS = new Set<string>(['repoToken']);
+// Fields whose values are masked or redacted in audit records
+const MASKED_FIELDS  = new Set<string>(['repoToken']);
+// env values can contain secrets — record only keys, not values
+const ENV_KEYS_ONLY  = new Set<string>(['env']);
 
 function maskValue(field: string, value: unknown): unknown {
   if (MASKED_FIELDS.has(field) && value) return '***';
+  if (ENV_KEYS_ONLY.has(field) && value && typeof value === 'object') {
+    const keys = Object.keys(value as Record<string, unknown>);
+    return keys.length ? `{keys: ${keys.join(', ')}}` : '{}';
+  }
   return value;
 }
 

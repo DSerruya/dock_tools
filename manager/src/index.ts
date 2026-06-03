@@ -17,6 +17,21 @@ import * as userService   from './services/userService';
 const app  = express();
 const PORT = parseInt(process.env.PORT || '3000');
 
+// Trust the nginx reverse-proxy so req.ip is the real client IP (used for rate limiting)
+app.set('trust proxy', 1);
+
+// ── Security headers on every response ──────────────────────────────────────
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Content-Security-Policy',
+    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;"
+  );
+  next();
+});
+
 // ── Public: webhooks (capture raw body for HMAC) ─────────────────────────────
 app.use('/webhook', (req, _res, next) => {
   const chunks: Buffer[] = [];
@@ -55,7 +70,19 @@ app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'index.h
 // ── Boot ─────────────────────────────────────────────────────────────────────
 app.listen(PORT, async () => {
   console.log(`[manager] Listening on port ${PORT}`);
+
+  if (!process.env.WEBHOOK_SECRET) {
+    console.warn('[security] WARNING: WEBHOOK_SECRET is not set — webhook endpoint is disabled and repoTokens cannot be encrypted at rest. Set WEBHOOK_SECRET in your .env file.');
+  } else if (process.env.WEBHOOK_SECRET === 'changeme_secret') {
+    console.warn('[security] WARNING: WEBHOOK_SECRET is set to the default placeholder "changeme_secret". Change it to a strong random value.');
+  }
+
   await userService.initializeFromEnv();
+
+  if (userService.listUsers().length === 0) {
+    console.warn('[security] WARNING: No users are configured — the UI is publicly accessible without authentication. Set UI_PASSWORD in your .env file.');
+  }
+
   logService.recoverStaleRuns();
   const configs = configService.loadAll();
   cronService.initAll(configs);

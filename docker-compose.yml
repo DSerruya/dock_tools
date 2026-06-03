@@ -9,7 +9,7 @@ services:
       - ./scripts-data:/app/scripts-data
     environment:
       - NODE_ENV=production
-      - WEBHOOK_SECRET=${WEBHOOK_SECRET:-changeme_secret}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET}
       - HOST_SCRIPTS_DATA_PATH=${HOST_SCRIPTS_DATA_PATH}
       - DEFAULT_TIMEZONE=${DEFAULT_TIMEZONE:-UTC}
       - DOCKER_NETWORK=script-network

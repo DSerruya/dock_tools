@@ -10,8 +10,46 @@ import * as auditService  from '../services/auditService';
 import { getUser }        from '../utils/getUser';
 import { requireRole }    from '../middleware/auth';
 import { ScriptConfig }   from '../types';
+import {
+  validateLanguage,
+  validateRepo,
+  validateShellCommand,
+  validateEnvKeys,
+} from '../utils/validation';
 
 const router = Router();
+
+// Strip the repoToken from configs sent over the wire.
+// When a token IS configured, return '***' so the UI can show "(token configured)"
+// without exposing the actual secret.
+function sanitizeConfig(config: ScriptConfig): Omit<ScriptConfig, 'repoToken'> & { repoToken?: string } {
+  const { repoToken, ...rest } = config;
+  return repoToken ? { ...rest, repoToken: '***' } : rest;
+}
+
+function validateScriptFields(body: Partial<ScriptConfig>): string | null {
+  if (body.language) {
+    const err = validateLanguage(body.language);
+    if (err) return err;
+  }
+  if (body.repo) {
+    const err = validateRepo(body.repo);
+    if (err) return err;
+  }
+  if (body.entryPoint) {
+    const err = validateShellCommand(body.entryPoint, 'entryPoint');
+    if (err) return err;
+  }
+  if (body.buildCommand) {
+    const err = validateShellCommand(body.buildCommand, 'buildCommand');
+    if (err) return err;
+  }
+  if (body.env) {
+    const err = validateEnvKeys(body.env);
+    if (err) return err;
+  }
+  return null;
+}
 
 router.get('/', async (_req, res) => {
   const configs = configService.loadAll();
@@ -19,7 +57,7 @@ router.get('/', async (_req, res) => {
     const cloned  = gitService.isCloned(config.name);
     const status  = cloned ? await dockerService.getStatus(config.name) : 'not_cloned';
     const nextRun = config.runMode === 'scheduled' ? cronService.getNextRun(config.name) : null;
-    return { config, status, nextRun };
+    return { config: sanitizeConfig(config), status, nextRun };
   }));
   res.json(results);
 });
@@ -36,6 +74,9 @@ router.post('/', requireRole('admin', 'agent'), async (req, res) => {
     return res.status(409).json({ error: `Script "${body.name}" already exists` });
   if (body.runMode === 'scheduled' && body.schedule && !cronService.isValidExpression(body.schedule))
     return res.status(400).json({ error: 'Invalid cron expression' });
+
+  const validationError = validateScriptFields(body);
+  if (validationError) return res.status(400).json({ error: validationError });
 
   const config: ScriptConfig = {
     name:         body.name,
@@ -81,6 +122,12 @@ router.put('/:name', requireRole('admin', 'agent'), async (req, res) => {
   if (body.runMode === 'scheduled' && body.schedule && !cronService.isValidExpression(body.schedule))
     return res.status(400).json({ error: 'Invalid cron expression' });
 
+  const validationError = validateScriptFields(body);
+  if (validationError) return res.status(400).json({ error: validationError });
+
+  // '***' means the client echoed back our masked placeholder — treat as no change
+  const incomingToken = (body.repoToken && body.repoToken !== '***') ? body.repoToken : undefined;
+
   // Build updated config, preserving immutable/runtime fields
   const updated: ScriptConfig = {
     ...config,
@@ -89,7 +136,7 @@ router.put('/:name', requireRole('admin', 'agent'), async (req, res) => {
     branch:       (body.branch       ?? config.branch),
     entryPoint:   (body.entryPoint   ?? config.entryPoint),
     buildCommand: body.buildCommand  !== undefined ? (body.buildCommand  || undefined) : config.buildCommand,
-    repoToken:    body.repoToken     !== undefined ? (body.repoToken     || undefined) : config.repoToken,
+    repoToken:    body.repoToken     !== undefined ? (incomingToken      || undefined) : config.repoToken,
     port:         body.port          !== undefined ?  body.port                        : config.port,
     env:          body.env           !== undefined ?  body.env                         : config.env,
     runMode:      (body.runMode      ?? config.runMode),
@@ -261,7 +308,7 @@ router.get('/:name/status', async (req, res) => {
   const cloned  = gitService.isCloned(config.name);
   const status  = cloned ? await dockerService.getStatus(config.name) : 'not_cloned';
   const nextRun = config.runMode === 'scheduled' ? cronService.getNextRun(config.name) : null;
-  res.json({ config, status, nextRun });
+  res.json({ config: sanitizeConfig(config), status, nextRun });
 });
 
 router.put('/:name/schedule', requireRole('admin', 'agent'), (req, res) => {
@@ -300,7 +347,7 @@ router.delete('/:name/schedule', requireRole('admin', 'agent'), (req, res) => {
 });
 
 // GET /api/scripts/:name/download — streams the cloned repo as a .tar.gz archive
-router.get('/:name/download', (req, res) => {
+router.get('/:name/download', requireRole('admin', 'agent'), (req, res) => {
   const config = configService.get(req.params.name);
   if (!config) return res.status(404).json({ error: 'Script not found' });
 
