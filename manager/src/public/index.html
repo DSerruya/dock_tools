@@ -34,26 +34,7 @@
     .logo { display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: 700; }
     .header-actions { display: flex; gap: 8px; align-items: center; justify-content: flex-end; }
 
-    /* ── Refresh widget (fixed to right viewport edge) ── */
-    #refresh-widget {
-      position: fixed;
-      top: 68px;
-      right: 0;
-      z-index: 9;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      padding: 5px 10px 5px 12px;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-right: none;
-      border-radius: 6px 0 0 6px;
-      font-size: 11px;
-      color: var(--muted);
-      white-space: nowrap;
-    }
-    #refresh-widget .refresh-row { display: contents; }
-    .refresh-icon-btn {
+.refresh-icon-btn {
       background: none;
       border: none;
       color: var(--muted);
@@ -346,7 +327,11 @@
 <div id="loading-bar" style="width:0"></div>
 
 <header>
-  <div class="logo">⚙️ Script Manager</div>
+  <div class="logo">
+    ⚙️ Script Manager
+    <span id="refresh-label" style="font-size:11px;font-weight:400;color:var(--muted);margin-left:10px"></span>
+    <button class="refresh-icon-btn" onclick="refreshCurrent()" title="Refresh">↺</button>
+  </div>
   <div class="tabs">
     <button class="tab-btn active" onclick="showTab('scripts')">⚡ Scripts</button>
     <button class="tab-btn"        onclick="showTab('logs')">📋 Logs</button>
@@ -358,13 +343,6 @@
   </div>
 </header>
 
-<!-- Fixed refresh widget — pinned to the right viewport edge, never shifts. -->
-<div id="refresh-widget">
-  <div class="refresh-row">
-    <span id="refresh-label"></span>
-    <button class="refresh-icon-btn" onclick="refreshCurrent()" title="Refresh">↺</button>
-  </div>
-</div>
 
 <main>
   <!-- ── Scripts tab ── -->
