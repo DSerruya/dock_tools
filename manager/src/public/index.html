@@ -34,16 +34,17 @@
     .logo { display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: 700; }
     .header-actions { display: flex; gap: 8px; align-items: center; justify-content: flex-end; }
 
-    /* ── Refresh widget (fixed to right viewport edge) ── */
+    /* ── Right-edge widget (user info + refresh, fixed to viewport) ── */
     #refresh-widget {
       position: fixed;
       top: 68px;
       right: 0;
       z-index: 9;
       display: flex;
-      align-items: center;
+      flex-direction: column;
+      align-items: flex-end;
       gap: 6px;
-      padding: 5px 10px 5px 12px;
+      padding: 8px 10px 8px 14px;
       background: var(--surface);
       border: 1px solid var(--border);
       border-right: none;
@@ -51,6 +52,11 @@
       font-size: 11px;
       color: var(--muted);
       white-space: nowrap;
+    }
+    #refresh-widget .refresh-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
     }
     .refresh-icon-btn {
       background: none;
@@ -331,19 +337,19 @@
     <button class="tab-btn"        onclick="showTab('audit')">🕵 Changes</button>
     <button class="tab-btn" id="tab-admin-btn" style="display:none" onclick="showTab('admin')">🔐 Admin</button>
   </div>
-  <div id="user-pill" style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px">
-    <span id="user-badge" class="role-badge role-admin" style="display:none"></span>
-  </div>
   <div class="header-actions">
     <button class="btn btn-primary" id="add-btn" onclick="openAddModal()">+ Add Script</button>
   </div>
 </header>
 
-<!-- Fixed refresh widget — pinned to the right edge of the viewport.
+<!-- Fixed right-edge widget — user info + refresh, pinned to the viewport.
      position:fixed + scrollbar-gutter:stable means it never shifts. -->
 <div id="refresh-widget">
-  <span id="refresh-label"></span>
-  <button class="refresh-icon-btn" onclick="refreshCurrent()" title="Refresh">↺</button>
+  <span id="user-badge" class="role-badge" style="display:none"></span>
+  <div class="refresh-row">
+    <span id="refresh-label"></span>
+    <button class="refresh-icon-btn" onclick="refreshCurrent()" title="Refresh">↺</button>
+  </div>
 </div>
 
 <main>
