@@ -34,17 +34,16 @@
     .logo { display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: 700; }
     .header-actions { display: flex; gap: 8px; align-items: center; justify-content: flex-end; }
 
-    /* ── Right-edge widget (user info + refresh, fixed to viewport) ── */
+    /* ── Refresh widget (fixed to right viewport edge) ── */
     #refresh-widget {
       position: fixed;
       top: 68px;
       right: 0;
       z-index: 9;
       display: flex;
-      flex-direction: column;
-      align-items: flex-end;
+      align-items: center;
       gap: 6px;
-      padding: 8px 10px 8px 14px;
+      padding: 5px 10px 5px 12px;
       background: var(--surface);
       border: 1px solid var(--border);
       border-right: none;
@@ -53,11 +52,7 @@
       color: var(--muted);
       white-space: nowrap;
     }
-    #refresh-widget .refresh-row {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
+    #refresh-widget .refresh-row { display: contents; }
     .refresh-icon-btn {
       background: none;
       border: none;
@@ -358,13 +353,13 @@
     <button class="tab-btn"        onclick="showTab('audit')">🕵 Changes</button>
     <button class="tab-btn" id="tab-admin-btn" style="display:none" onclick="showTab('admin')">🔐 Admin</button>
   </div>
-  <div class="header-actions"></div>
+  <div class="header-actions">
+    <span id="user-badge" class="role-badge" style="display:none"></span>
+  </div>
 </header>
 
-<!-- Fixed right-edge widget — user info + refresh, pinned to the viewport.
-     position:fixed + scrollbar-gutter:stable means it never shifts. -->
+<!-- Fixed refresh widget — pinned to the right viewport edge, never shifts. -->
 <div id="refresh-widget">
-  <span id="user-badge" class="role-badge" style="display:none"></span>
   <div class="refresh-row">
     <span id="refresh-label"></span>
     <button class="refresh-icon-btn" onclick="refreshCurrent()" title="Refresh">↺</button>
