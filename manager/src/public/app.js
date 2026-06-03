@@ -674,14 +674,10 @@ function fmtValRaw(v) {
   return typeof v === 'object' ? JSON.stringify(v, null, 2) : String(v);
 }
 
-// Render a compact pill showing changed field names + a detail icon
-function renderChanges(changes, entryId) {
+// Render compact pills of changed field names only
+function renderChanges(changes) {
   if (!changes?.length) return '<span class="no-changes">—</span>';
-  const fields = changes.map(c => `<code style="font-size:11px">${escHtml(c.field)}</code>`).join(' ');
-  return `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-    ${fields}
-    <button class="eye-btn" onclick="openChangeDiff('${escHtml(entryId)}')" title="View changes">👁</button>
-  </div>`;
+  return changes.map(c => `<code style="font-size:11px">${escHtml(c.field)}</code>`).join(' ');
 }
 
 function openChangeDiff(entryId) {
@@ -766,7 +762,8 @@ function renderAuditTable(entries) {
       <td><span class="audit-user">👤 ${escHtml(e.user)}</span></td>
       <td><strong>${escHtml(e.scriptName)}</strong></td>
       <td><span class="audit-action" style="color:${meta.color}">${meta.icon} ${meta.label}</span></td>
-      <td>${renderChanges(e.changes, e.id)}</td>
+      <td>${renderChanges(e.changes)}</td>
+      <td>${e.changes?.length ? `<button class="eye-btn" onclick="openChangeDiff('${escHtml(e.id)}')" title="View changes">👁</button>` : ''}</td>
     </tr>`;
   }).join('');
 
@@ -779,6 +776,7 @@ function renderAuditTable(entries) {
           <th>Script</th>
           <th>Action</th>
           <th>Changed fields</th>
+          <th></th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
