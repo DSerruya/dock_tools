@@ -324,6 +324,26 @@
 
   <!-- ── Admin tab ── -->
   <div id="tab-admin" class="tab-panel">
+
+    <!-- System / version card -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:24px">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+        <div>
+          <div style="font-size:14px;font-weight:600;margin-bottom:4px">System</div>
+          <div id="sys-version" style="font-size:12px;color:var(--muted)">Loading…</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <span id="sys-update-badge" style="font-size:12px"></span>
+          <button class="btn btn-ghost btn-sm" onclick="checkForUpdates()" id="sys-check-btn">Check for updates</button>
+          <button class="btn btn-primary btn-sm" id="sys-update-btn" style="display:none" onclick="triggerUpdate()">↑ Update</button>
+        </div>
+      </div>
+      <div id="sys-update-log"
+           style="display:none;margin-top:12px;font-family:'Courier New',monospace;font-size:11px;
+                  background:#0a0c12;border:1px solid var(--border);border-radius:6px;
+                  padding:10px;max-height:220px;overflow-y:auto;color:#a3e635;white-space:pre-wrap;word-break:break-all"></div>
+    </div>
+
     <div class="table-toolbar">
       <div>
         <h2 style="font-size:16px;font-weight:600">User Management</h2>

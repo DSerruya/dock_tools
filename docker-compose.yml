@@ -13,6 +13,7 @@ services:
       - HOST_SCRIPTS_DATA_PATH=${HOST_SCRIPTS_DATA_PATH}
       - DEFAULT_TIMEZONE=${DEFAULT_TIMEZONE:-UTC}
       - DOCKER_NETWORK=script-network
+      - PROJECT_REPO=https://github.com/DSerruya/dock_tools.git
     restart: unless-stopped
     networks:
       - script-network

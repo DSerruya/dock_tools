@@ -3,6 +3,11 @@ FROM node:20-slim
 RUN apt-get update && apt-get install -y git ca-certificates --no-install-recommends \
   && rm -rf /var/lib/apt/lists/*
 
+ARG GIT_COMMIT=unknown
+ARG BUILD_TIME=unknown
+ENV GIT_COMMIT=$GIT_COMMIT
+ENV BUILD_TIME=$BUILD_TIME
+
 WORKDIR /app
 
 COPY package*.json ./

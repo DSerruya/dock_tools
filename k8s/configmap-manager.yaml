@@ -14,3 +14,4 @@ data:
   DOCKER_NETWORK: "bridge"
   PORT: "3000"
   UI_USERNAME: "admin"
+  PROJECT_REPO: "https://github.com/DSerruya/dock_tools.git"

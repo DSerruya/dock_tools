@@ -84,7 +84,7 @@ function showTab(tab) {
   if (tab === 'scripts')    loadScripts();
   else if (tab === 'logs')  loadLogs();
   else if (tab === 'audit') loadAudit();
-  else if (tab === 'admin') loadUsers();
+  else if (tab === 'admin') { loadUsers(); loadSystemVersion(); }
 }
 
 /* ── Role helpers ──────────────────────────────────────────────────────────── */
@@ -536,6 +536,127 @@ async function deleteUser(username) {
 }
 
 /* ── Audit / Changes tab ──────────────────────────────────────────────────── */
+
+/* ── Admin tab — System / self-update ────────────────────────────────────── */
+
+let _sysRepoSlug   = '';
+let _sysCommit     = '';
+let _updatePollTmr = null;
+let _healthPollTmr = null;
+
+async function loadSystemVersion() {
+  try {
+    const v = await api('GET', '/api/admin/version');
+    _sysCommit   = v.commit || 'dev';
+    _sysRepoSlug = v.repoSlug || '';
+    const sha = _sysCommit === 'dev' ? 'dev build' : _sysCommit.slice(0, 7);
+    const built = v.buildTime ? ` · built ${relativeTime(v.buildTime)}` : '';
+    document.getElementById('sys-version').textContent = `commit ${sha}${built}`;
+  } catch {
+    document.getElementById('sys-version').textContent = 'version unknown';
+  }
+}
+
+async function checkForUpdates() {
+  const badge  = document.getElementById('sys-update-badge');
+  const btn    = document.getElementById('sys-check-btn');
+  badge.textContent  = 'Checking…';
+  badge.style.color  = 'var(--muted)';
+  btn.disabled       = true;
+
+  try {
+    if (!_sysRepoSlug) await loadSystemVersion();
+    const resp = await fetch(
+      `https://api.github.com/repos/${_sysRepoSlug}/commits/main`,
+      { headers: { Accept: 'application/vnd.github.sha' } }
+    );
+    if (!resp.ok) throw new Error('GitHub API error');
+    const latest = (await resp.text()).trim();
+
+    if (_sysCommit === 'dev' || _sysCommit === latest) {
+      badge.textContent = '✓ Up to date';
+      badge.style.color = 'var(--green)';
+      document.getElementById('sys-update-btn').style.display = 'none';
+    } else {
+      badge.textContent = `↑ Update available (${latest.slice(0, 7)})`;
+      badge.style.color = 'var(--yellow)';
+      document.getElementById('sys-update-btn').style.display = '';
+    }
+  } catch {
+    badge.textContent = 'Could not reach GitHub';
+    badge.style.color = 'var(--red)';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function triggerUpdate() {
+  if (!confirm('This will rebuild and restart the manager. The UI will be unavailable for ~1–2 minutes. Continue?')) return;
+
+  document.getElementById('sys-update-btn').style.display = 'none';
+  document.getElementById('sys-check-btn').disabled = true;
+
+  const log = document.getElementById('sys-update-log');
+  log.style.display = 'block';
+  log.textContent   = '';
+
+  const badge = document.getElementById('sys-update-badge');
+  badge.textContent = 'Starting…';
+  badge.style.color = 'var(--accent)';
+
+  try {
+    await api('POST', '/api/admin/update');
+    _pollUpdateStatus();
+  } catch (e) {
+    badge.textContent = 'Failed to start update';
+    badge.style.color = 'var(--red)';
+    toast('Update failed: ' + e.message, 'error');
+    document.getElementById('sys-check-btn').disabled = false;
+  }
+}
+
+function _pollUpdateStatus() {
+  if (_updatePollTmr) clearInterval(_updatePollTmr);
+  _updatePollTmr = setInterval(async () => {
+    try {
+      const s     = await api('GET', '/api/admin/update/status');
+      const log   = document.getElementById('sys-update-log');
+      const badge = document.getElementById('sys-update-badge');
+      log.textContent = s.log || '';
+      log.scrollTop   = log.scrollHeight;
+
+      if (s.status === 'cloning') {
+        badge.textContent = 'Cloning…';  badge.style.color = 'var(--accent)';
+      } else if (s.status === 'building') {
+        badge.textContent = 'Building…'; badge.style.color = 'var(--yellow)';
+      } else if (s.status === 'done') {
+        badge.textContent = 'Restarting…'; badge.style.color = 'var(--green)';
+        clearInterval(_updatePollTmr);
+        _pollHealth();
+      } else if (s.status === 'error') {
+        badge.textContent = `Error: ${s.error}`;
+        badge.style.color = 'var(--red)';
+        clearInterval(_updatePollTmr);
+        document.getElementById('sys-check-btn').disabled = false;
+        toast('Update failed: ' + s.error, 'error');
+      }
+    } catch { /* server is probably restarting — will catch in _pollHealth */ }
+  }, 1000);
+}
+
+function _pollHealth() {
+  if (_healthPollTmr) clearInterval(_healthPollTmr);
+  _healthPollTmr = setInterval(async () => {
+    try {
+      const r = await fetch('/healthz');
+      if (r.ok) {
+        clearInterval(_healthPollTmr);
+        toast('Update complete! Reloading…', 'success');
+        setTimeout(() => location.reload(), 1200);
+      }
+    } catch { /* still restarting */ }
+  }, 2000);
+}
 
 const ACTION_META = {
   'script.created':          { icon: '➕', label: 'Script created',    color: 'var(--green)'  },
