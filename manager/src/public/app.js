@@ -761,10 +761,26 @@ function closeLogViewer() {
 
 async function copyLogs() {
   const text = document.getElementById('lv-output').textContent || '';
-  await navigator.clipboard.writeText(text);
   const btn = document.getElementById('lv-copy-btn');
-  btn.textContent = 'Copied!';
-  setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+  try {
+    if (navigator.clipboard) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+    btn.textContent = 'Copied!';
+    setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+  } catch {
+    btn.textContent = 'Failed';
+    setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+  }
 }
 
 function scrollLogsToBottom() {
