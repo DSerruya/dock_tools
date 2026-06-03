@@ -326,6 +326,57 @@ read -rp "  Port [default: 80]: " MANAGER_PORT
 MANAGER_PORT="${MANAGER_PORT:-80}"
 
 echo ""
+echo -e "  ${BOLD}HTTPS / TLS${RESET}"
+echo -e "  Encrypts traffic so that Basic Auth credentials are never sent in plaintext."
+echo -e "  You can use a self-signed certificate (for internal use) or provide your own.\n"
+read -rp "  Enable HTTPS? [y/N]: " ENABLE_TLS
+ENABLE_TLS="${ENABLE_TLS:-n}"
+MANAGER_TLS_PORT="443"
+
+if [[ "$ENABLE_TLS" =~ ^[Yy]$ ]]; then
+  read -rp "  HTTPS port [default: 443]: " MANAGER_TLS_PORT
+  MANAGER_TLS_PORT="${MANAGER_TLS_PORT:-443}"
+
+  mkdir -p nginx/certs
+
+  echo ""
+  echo -e "  Certificate options:"
+  echo -e "    [1] Generate a self-signed certificate (for internal/dev use)"
+  echo -e "    [2] Provide paths to existing cert and key files\n"
+  read -rp "  Choice [1]: " TLS_CHOICE
+  TLS_CHOICE="${TLS_CHOICE:-1}"
+
+  if [ "$TLS_CHOICE" = "2" ]; then
+    read -rp "  Path to certificate file (.pem): " TLS_CERT_SRC
+    read -rp "  Path to private key file (.pem): " TLS_KEY_SRC
+    if [ ! -f "$TLS_CERT_SRC" ] || [ ! -f "$TLS_KEY_SRC" ]; then
+      error "Certificate or key file not found. Aborting."
+    fi
+    cp "$TLS_CERT_SRC" nginx/certs/cert.pem
+    cp "$TLS_KEY_SRC"  nginx/certs/key.pem
+    success "Certificates copied"
+  else
+    if ! command -v openssl &>/dev/null; then
+      error "openssl is required to generate a self-signed certificate. Install it and re-run."
+    fi
+    read -rp "  Common Name / domain (e.g. localhost or your server IP) [localhost]: " TLS_CN
+    TLS_CN="${TLS_CN:-localhost}"
+    openssl req -x509 -nodes -newkey rsa:2048 -days 3650 \
+      -keyout nginx/certs/key.pem -out nginx/certs/cert.pem \
+      -subj "/CN=${TLS_CN}" -addext "subjectAltName=DNS:${TLS_CN},IP:127.0.0.1" \
+      2>/dev/null
+    success "Self-signed certificate generated (valid 10 years)"
+    warn "Browsers will show a security warning for self-signed certs — add an exception or use a real certificate for production."
+  fi
+
+  chmod 600 nginx/certs/key.pem nginx/certs/cert.pem
+
+  # Activate TLS nginx config
+  cp nginx/nginx-tls.conf nginx/nginx.conf
+  success "TLS nginx config activated"
+fi
+
+echo ""
 echo -e "  ${BOLD}Timezone${RESET}"
 echo -e "  Default timezone for cron schedules (can be overridden per script)."
 echo -e "  Examples: UTC, America/New_York, Europe/London, Asia/Tokyo\n"
@@ -369,14 +420,18 @@ HOST_SCRIPTS_DATA_PATH=${INSTALL_DIR}/scripts-data
 # Default timezone for cron schedules
 DEFAULT_TIMEZONE=${DEFAULT_TZ}
 
-# Port exposed on the host for the web UI
+# Port exposed on the host for the web UI (HTTP)
 MANAGER_PORT=${MANAGER_PORT}
+
+# Port exposed on the host for HTTPS (only used when TLS is enabled)
+MANAGER_TLS_PORT=${MANAGER_TLS_PORT}
 
 # Web UI Basic Auth (leave UI_PASSWORD empty to disable authentication)
 UI_USERNAME=admin
 UI_PASSWORD=${UI_PASSWORD}
 EOF
 
+chmod 600 .env
 success ".env written"
 info  "You can edit ${INSTALL_DIR}/.env at any time and restart to apply changes."
 
@@ -421,9 +476,15 @@ echo -e "${BOLD}${GREEN}━━━━━━━━━━━━━━━━━━�
 echo -e "${BOLD}  Installation complete!${RESET}"
 echo -e "${BOLD}${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
 echo ""
-echo -e "  ${BOLD}Web UI:${RESET}          http://${HOST_IP}:${MANAGER_PORT}"
-echo -e "  ${BOLD}Local URL:${RESET}       http://localhost:${MANAGER_PORT}"
-echo -e "  ${BOLD}Webhook base URL:${RESET} http://${HOST_IP}:${MANAGER_PORT}/webhook/<script-name>"
+if [[ "$ENABLE_TLS" =~ ^[Yy]$ ]]; then
+  echo -e "  ${BOLD}Web UI:${RESET}          https://${HOST_IP}:${MANAGER_TLS_PORT}"
+  echo -e "  ${BOLD}Local URL:${RESET}       https://localhost:${MANAGER_TLS_PORT}"
+  echo -e "  ${BOLD}Webhook base URL:${RESET} https://${HOST_IP}:${MANAGER_TLS_PORT}/webhook/<script-name>"
+else
+  echo -e "  ${BOLD}Web UI:${RESET}          http://${HOST_IP}:${MANAGER_PORT}"
+  echo -e "  ${BOLD}Local URL:${RESET}       http://localhost:${MANAGER_PORT}"
+  echo -e "  ${BOLD}Webhook base URL:${RESET} http://${HOST_IP}:${MANAGER_PORT}/webhook/<script-name>"
+fi
 echo ""
 echo -e "  ${BOLD}Login:${RESET}           admin / ${UI_PASSWORD:-'(no password set)'}"
 echo -e "  ${BOLD}Webhook secret:${RESET}  ${WEBHOOK_SECRET}"

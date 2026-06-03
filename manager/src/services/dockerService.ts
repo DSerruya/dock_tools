@@ -78,6 +78,7 @@ async function createContainer(config: ScriptConfig, restartPolicy: string): Pro
     ? `${hostRepoPath(config.name)}:/app`
     : `${hostRepoPath(config.name)}:/app:ro`;
 
+  // Only the repo bind-mount is allowed — no extra binds, no host socket access
   const opts: Dockerode.ContainerCreateOptions = {
     name: containerName(config.name),
     Image: image,
@@ -85,9 +86,14 @@ async function createContainer(config: ScriptConfig, restartPolicy: string): Pro
     WorkingDir: '/app',
     Env: Object.entries(config.env || {}).map(([k, v]) => `${k}=${v}`),
     HostConfig: {
-      Binds: [bindMount],
+      Binds:         [bindMount],
       RestartPolicy: { Name: restartPolicy },
-      NetworkMode: DOCKER_NETWORK,
+      NetworkMode:   DOCKER_NETWORK,
+      // Hardened defaults — these fields are set here and are not user-configurable
+      Privileged:    false,
+      CapAdd:        [],
+      CapDrop:       ['ALL'],
+      ReadonlyRootfs: false, // app needs to write node_modules etc.
     },
   };
 

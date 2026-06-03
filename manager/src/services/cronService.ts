@@ -54,10 +54,7 @@ export function register(config: ScriptConfig): void {
   const task = nodeCron.schedule(
     config.schedule,
     () => { void executeScript(config); },
-    {
-      scheduled: true,
-      timezone: config.timezone || process.env.DEFAULT_TIMEZONE || 'UTC',
-    }
+    { timezone: config.timezone || process.env.DEFAULT_TIMEZONE || 'UTC' }
   );
   jobs.set(config.name, task);
   console.log(`[cron] Registered "${config.name}": ${config.schedule} (${config.timezone || 'UTC'})`);
