@@ -89,6 +89,21 @@ router.get('/version', (_req, res) => {
   });
 });
 
+// GET /api/admin/update/latest-commit — proxies GitHub API server-side
+router.get('/update/latest-commit', requireRole('admin'), async (_req, res) => {
+  try {
+    const url  = `https://api.github.com/repos/${repoSlug}/commits/main`;
+    const resp = await fetch(url, {
+      headers: { Accept: 'application/vnd.github.sha', 'User-Agent': 'dock-tools-manager' },
+    });
+    if (!resp.ok) return res.status(resp.status).json({ error: `GitHub API returned ${resp.status}` });
+    const sha = (await resp.text()).trim();
+    res.json({ sha });
+  } catch (err: any) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
 // GET /api/admin/update/status
 router.get('/update/status', requireRole('admin'), (_req, res) => {
   res.json(updateState);

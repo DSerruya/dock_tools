@@ -569,13 +569,7 @@ async function checkForUpdates() {
   btn.disabled       = true;
 
   try {
-    if (!_sysRepoSlug) await loadSystemVersion();
-    const resp = await fetch(
-      `https://api.github.com/repos/${_sysRepoSlug}/commits/main`,
-      { headers: { Accept: 'application/vnd.github.sha' } }
-    );
-    if (!resp.ok) throw new Error('GitHub API error');
-    const latest = (await resp.text()).trim();
+    const { sha: latest } = await api('GET', '/api/admin/update/latest-commit');
 
     if (_sysCommit === 'dev' || _sysCommit === latest) {
       badge.textContent = '✓ Up to date';
