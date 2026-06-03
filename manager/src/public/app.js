@@ -669,21 +669,45 @@ const ACTION_META = {
   'code.synced':             { icon: '🔄', label: 'Code synced',       color: 'var(--green)'  },
 };
 
-function fmtVal(v) {
-  if (v === undefined || v === null) return '<span class="change-val change-val-none">(none)</span>';
-  const s = typeof v === 'object' ? JSON.stringify(v, null, 1) : String(v);
-  return `<span class="change-val">${escHtml(s)}</span>`;
+function fmtValRaw(v) {
+  if (v === undefined || v === null) return '(none)';
+  return typeof v === 'object' ? JSON.stringify(v, null, 2) : String(v);
 }
 
-function renderChanges(changes) {
+// Render a compact pill showing changed field names + a detail icon
+function renderChanges(changes, entryId) {
   if (!changes?.length) return '<span class="no-changes">—</span>';
-  return `<div class="changes-list">${changes.map(c => `
-    <div class="change-row">
-      <span class="change-field">${escHtml(c.field)}</span>
-      <span class="change-val change-val-old">${escHtml(c.oldValue !== undefined && c.oldValue !== null ? String(typeof c.oldValue==='object'?JSON.stringify(c.oldValue):c.oldValue) : '(none)')}</span>
-      <span class="change-arrow">→</span>
-      <span class="change-val change-val-new">${escHtml(c.newValue !== undefined && c.newValue !== null ? String(typeof c.newValue==='object'?JSON.stringify(c.newValue):c.newValue) : '(none)')}</span>
-    </div>`).join('')}</div>`;
+  const fields = changes.map(c => `<code style="font-size:11px">${escHtml(c.field)}</code>`).join(' ');
+  return `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+    ${fields}
+    <button class="eye-btn" onclick="openChangeDiff('${escHtml(entryId)}')" title="View changes">👁</button>
+  </div>`;
+}
+
+function openChangeDiff(entryId) {
+  const entry = _allAuditEntries.find(e => e.id === entryId);
+  if (!entry) return;
+  const changes = entry.changes || [];
+
+  const fmtBox = (side) => changes.map(c => {
+    const val = fmtValRaw(side === 'old' ? c.oldValue : c.newValue);
+    return `<div style="margin-bottom:10px">
+      <div style="font-size:11px;font-weight:600;color:var(--accent);font-family:monospace;margin-bottom:3px">${escHtml(c.field)}</div>
+      <div style="font-family:monospace;font-size:12px;white-space:pre-wrap;word-break:break-all">${escHtml(val)}</div>
+    </div>`;
+  }).join('');
+
+  const meta   = ACTION_META[entry.action] || { icon: '•', label: entry.action };
+  const modal  = document.getElementById('change-diff-modal');
+  document.getElementById('cdiff-title').textContent  = `${meta.icon} ${meta.label} — ${entry.scriptName}`;
+  document.getElementById('cdiff-time').textContent   = fmtDateTime(entry.timestamp) + ' by ' + entry.user;
+  document.getElementById('cdiff-old').innerHTML      = changes.length ? fmtBox('old') : '<span style="color:var(--muted);font-style:italic">No previous values</span>';
+  document.getElementById('cdiff-new').innerHTML      = changes.length ? fmtBox('new') : '<span style="color:var(--muted);font-style:italic">No new values</span>';
+  modal.classList.remove('hidden');
+}
+
+function closeChangeDiff() {
+  document.getElementById('change-diff-modal').classList.add('hidden');
 }
 
 let _allAuditEntries = [];
@@ -742,7 +766,7 @@ function renderAuditTable(entries) {
       <td><span class="audit-user">👤 ${escHtml(e.user)}</span></td>
       <td><strong>${escHtml(e.scriptName)}</strong></td>
       <td><span class="audit-action" style="color:${meta.color}">${meta.icon} ${meta.label}</span></td>
-      <td>${renderChanges(e.changes)}</td>
+      <td>${renderChanges(e.changes, e.id)}</td>
     </tr>`;
   }).join('');
 
@@ -754,7 +778,7 @@ function renderAuditTable(entries) {
           <th>User</th>
           <th>Script</th>
           <th>Action</th>
-          <th>Changes (field: old → new)</th>
+          <th>Changed fields</th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
