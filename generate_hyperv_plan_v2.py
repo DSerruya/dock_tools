@@ -487,20 +487,25 @@ pdf.body("Expected output from docker compose ps:")
 pdf.table(
     ["Name", "Image", "Status", "Ports"],
     [
-        ["manager", "dock-tools-manager", "Up", "3000/tcp (internal)"],
-        ["nginx",   "nginx:alpine",       "Up", "0.0.0.0:80->80/tcp"],
+        ["script-manager", "dock-tools-manager", "Up", "3000/tcp (internal)"],
+        ["script-nginx",   "nginx:alpine",       "Up", "0.0.0.0:8484->80/tcp"],
     ],
-    [30, 48, 20, 84],
+    [35, 48, 20, 79],
 )
 
 pdf.body("Step 5 - Access the web UI:")
 pdf.table(
-    ["Mode", "URL"],
+    ["Mode", "URL", "Notes"],
     [
-        ["Internal (cloud)", "http://192.168.100.2  (from Windows host browser)"],
-        ["External (LAN)",   "http://<vm-ip>        (from any machine on the LAN)"],
+        ["Internal (cloud)", "http://192.168.100.2:8484", "Default port 8484 - check MANAGER_PORT in .env"],
+        ["External (LAN)",   "http://<vm-ip>:8484",       "Use the port shown in docker compose ps"],
     ],
-    [40, 142],
+    [35, 60, 87],
+)
+pdf.warning_box(
+    "Seeing 'Welcome to nginx' instead of Dock Tools? You are hitting the wrong port. "
+    "Check your .env for MANAGER_PORT and add it to the URL. "
+    "Run: grep MANAGER_PORT ~/dock-tools/.env"
 )
 
 pdf.body("Credentials:")
@@ -625,6 +630,47 @@ pdf.code_block([
     "kubectl apply -k k8s/",
     "kubectl rollout status deployment/dock-tools-manager -n dock-tools --timeout=120s",
     "kubectl rollout status deployment/dock-tools-nginx   -n dock-tools --timeout=120s",
+])
+
+# ── Dock Tools troubleshooting ────────────────────────────────────────────────
+pdf.phase_title("Dock Tools Troubleshooting")
+pdf.table(
+    ["Symptom", "Cause", "Fix"],
+    [
+        ["Welcome to nginx page",
+         "Accessing wrong port - MANAGER_PORT is not 80",
+         "Add port to URL: http://<ip>:8484  (check .env for MANAGER_PORT)"],
+        ["No UI_PASSWORD set (in logs)",
+         "UI_PASSWORD missing from docker-compose.yml environment",
+         "git pull to get the fix, then docker compose down && up -d"],
+        ["package.json not found (script error)",
+         "HOST_SCRIPTS_DATA_PATH in .env does not match actual scripts-data location",
+         "grep HOST_SCRIPTS_DATA_PATH .env  and compare to actual path"],
+        ["docker: permission denied",
+         "User not in docker group or session not refreshed after install",
+         "Use sudo docker, then reconnect SSH (do NOT run newgrp on headless server)"],
+        ["eth0 autoconfiguration failed",
+         "No DHCP on internal switch, or switch is not External type",
+         "Set static IP manually in installer (see network config section)"],
+        ["Containers exited immediately",
+         "Port conflict, low disk, or bad .env values",
+         "Run: sudo docker compose logs --tail=40  to see the exact error"],
+    ],
+    [42, 55, 85],
+)
+
+pdf.body("After pulling fixes, always restart the stack to apply changes:")
+pdf.code_block([
+    "cd ~/dock-tools",
+    "git pull",
+    "sudo docker compose down",
+    "sudo docker compose up -d",
+    "",
+    "# Verify containers are running",
+    "sudo docker compose ps",
+    "",
+    "# Check manager received correct env vars",
+    "sudo docker exec script-manager env | grep -E 'UI_|HOST_|WEBHOOK'",
 ])
 
 # ── Network diagnosis ─────────────────────────────────────────────────────────
