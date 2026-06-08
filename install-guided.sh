@@ -336,16 +336,15 @@ EOF
   fi
   if [[ -n "$MGR_CONTAINER" ]]; then
     if [[ -n "$DOCKER_CMD" ]]; then
-      MOUNT_CHECK=$($DOCKER_CMD docker exec "$MGR_CONTAINER" ls /app/scripts-data 2>/dev/null && echo "ok" || echo "fail")
+      $DOCKER_CMD docker exec "$MGR_CONTAINER" ls /app/scripts-data &>/dev/null \
+        && success "Volume mount /app/scripts-data is working" \
+        || { warn "Volume mount check failed. HOST_SCRIPTS_DATA_PATH may be incorrect."; \
+             warn "Current value: ${SCRIPTS_DATA_DIR}"; }
     else
-      MOUNT_CHECK=$(docker exec "$MGR_CONTAINER" ls /app/scripts-data 2>/dev/null && echo "ok" || echo "fail")
-    fi
-    if [[ "$MOUNT_CHECK" == "ok" ]]; then
-      success "Volume mount /app/scripts-data is working"
-    else
-      warn "Volume mount check failed. HOST_SCRIPTS_DATA_PATH may be incorrect."
-      warn "Current value: ${SCRIPTS_DATA_DIR}"
-      warn "Check: sudo docker inspect \$(sudo docker compose ps -q manager) | grep -A3 Mounts"
+      docker exec "$MGR_CONTAINER" ls /app/scripts-data &>/dev/null \
+        && success "Volume mount /app/scripts-data is working" \
+        || { warn "Volume mount check failed. HOST_SCRIPTS_DATA_PATH may be incorrect."; \
+             warn "Current value: ${SCRIPTS_DATA_DIR}"; }
     fi
   else
     warn "Manager container not found — it may have exited. Check logs above."
