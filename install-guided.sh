@@ -119,8 +119,9 @@ if [[ "$HOST_TYPE" == "1" ]]; then
     curl -fsSL https://get.docker.com | sudo sh
     sudo usermod -aG docker "$USER"
     warn "Docker installed and user added to docker group."
-    warn "The current shell session does not have the group yet — the installer will use 'sg docker' to continue."
-    DOCKER_CMD="sg docker -c"
+    warn "The current shell session does not have the group yet."
+    warn "The installer will use 'sudo docker' for this session."
+    DOCKER_CMD="sudo"
     NEEDS_RELOGIN=true
   else
     # Check if current session already has docker group access
@@ -130,10 +131,11 @@ if [[ "$HOST_TYPE" == "1" ]]; then
       NEEDS_RELOGIN=false
     else
       # Docker installed but group not active in this session
+      # (common after first install — newgrp causes display errors on headless servers)
       sudo usermod -aG docker "$USER" 2>/dev/null || true
-      warn "Docker is installed but this session lacks docker group access."
-      warn "Using 'sg docker' to run Docker commands in this session."
-      DOCKER_CMD="sg docker -c"
+      warn "Docker group not active in this session."
+      warn "Using 'sudo docker' to continue. Reconnect SSH after install for normal access."
+      DOCKER_CMD="sudo"
       NEEDS_RELOGIN=true
     fi
   fi
@@ -259,9 +261,9 @@ EOF
   cd "$INSTALL_DIR"
 
   if [[ -n "$DOCKER_CMD" ]]; then
-    $DOCKER_CMD "docker compose down --remove-orphans" 2>/dev/null || true
-    $DOCKER_CMD "docker compose up -d --build" \
-      || error "docker compose up failed. Run 'sg docker -c \"docker compose logs\"' for details."
+    $DOCKER_CMD docker compose down --remove-orphans 2>/dev/null || true
+    $DOCKER_CMD docker compose up -d --build \
+      || error "docker compose up failed. Run 'sudo docker compose logs' for details."
   else
     docker compose down --remove-orphans 2>/dev/null || true
     docker compose up -d --build \
@@ -273,7 +275,7 @@ EOF
   section "Step 6 — Validate Services"
 
   sleep 4
-  [[ -n "$DOCKER_CMD" ]] && $DOCKER_CMD "docker compose ps" || docker compose ps
+  [[ -n "$DOCKER_CMD" ]] && $DOCKER_CMD docker compose ps || docker compose ps
   echo ""
 
   BASE_URL="${PROTOCOL}://localhost:${MANAGER_PORT}"
@@ -288,13 +290,13 @@ EOF
   # Verify volume mount inside manager container
   info "Verifying volume mount inside manager container..."
   if [[ -n "$DOCKER_CMD" ]]; then
-    MGR_CONTAINER=$($DOCKER_CMD "docker compose ps -q manager" 2>/dev/null | head -1 || echo "")
+    MGR_CONTAINER=$($DOCKER_CMD docker compose ps -q manager 2>/dev/null | head -1 || echo "")
   else
     MGR_CONTAINER=$(docker compose ps -q manager 2>/dev/null | head -1 || echo "")
   fi
   if [[ -n "$MGR_CONTAINER" ]]; then
     if [[ -n "$DOCKER_CMD" ]]; then
-      MOUNT_CHECK=$($DOCKER_CMD "docker exec $MGR_CONTAINER ls /app/scripts-data" 2>/dev/null && echo "ok" || echo "fail")
+      MOUNT_CHECK=$($DOCKER_CMD docker exec "$MGR_CONTAINER" ls /app/scripts-data 2>/dev/null && echo "ok" || echo "fail")
     else
       MOUNT_CHECK=$(docker exec "$MGR_CONTAINER" ls /app/scripts-data 2>/dev/null && echo "ok" || echo "fail")
     fi
@@ -615,7 +617,8 @@ echo -e "  ${YELLOW}Webhook URL format:  ${BASE_URL}/webhook/<script-name>${RESE
 echo -e "  ${YELLOW}Save the webhook secret — you will need it when connecting GitHub.${RESET}"
 echo ""
 if [[ "${NEEDS_RELOGIN:-false}" == "true" ]]; then
-echo -e "  ${BOLD}${YELLOW}NOTE:${RESET} Log out and back in (or run 'newgrp docker') so future"
-echo -e "  docker commands work without 'sg docker'. The stack is already running."
+echo -e "  ${BOLD}${YELLOW}NOTE:${RESET} Reconnect your SSH session so future docker commands"
+echo -e "  work without sudo. The stack is already running."
+echo -e "  ${YELLOW}Do NOT run 'newgrp docker' on a headless server — it causes display errors.${RESET}"
 echo ""
 fi
