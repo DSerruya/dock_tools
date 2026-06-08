@@ -190,9 +190,9 @@ if [[ "$HOST_TYPE" == "1" ]]; then
   success "Timezone: $DEFAULT_TIMEZONE"
 
   # Port
-  ask "HTTP port [80]:"
+  ask "HTTP port [8484]:"
   read -r MANAGER_PORT
-  MANAGER_PORT="${MANAGER_PORT:-80}"
+  MANAGER_PORT="${MANAGER_PORT:-8484}"
   [[ "$MANAGER_PORT" =~ ^[0-9]+$ ]] || error "Invalid port number: $MANAGER_PORT"
   success "HTTP port: $MANAGER_PORT"
 
@@ -215,9 +215,9 @@ if [[ "$HOST_TYPE" == "1" ]]; then
   # TLS
   if confirm "Enable HTTPS / TLS?" "n"; then
     USE_TLS=true
-    ask "HTTPS port [443]:"
+    ask "HTTPS port [8443]:"
     read -r MANAGER_TLS_PORT
-    MANAGER_TLS_PORT="${MANAGER_TLS_PORT:-443}"
+    MANAGER_TLS_PORT="${MANAGER_TLS_PORT:-8443}"
 
     CERT_DIR="${INSTALL_DIR}/nginx/certs"
     mkdir -p "$CERT_DIR"
