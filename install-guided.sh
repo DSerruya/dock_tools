@@ -231,7 +231,10 @@ if [[ "$HOST_TYPE" == "1" ]]; then
         -subj "/CN=dock-tools.local" &>/dev/null
       success "Self-signed certificate generated"
     fi
-    sed -i.bak 's|nginx\.conf|nginx-tls.conf|' "${INSTALL_DIR}/docker-compose.yml"
+    # Replace only the SOURCE path (left side of colon), not the destination
+    # Wrong:  ./nginx/nginx.conf:/etc/nginx/nginx.conf  -> ./nginx/nginx-tls.conf:/etc/nginx/nginx-tls.conf
+    # Correct: ./nginx/nginx.conf:/etc/nginx/nginx.conf -> ./nginx/nginx-tls.conf:/etc/nginx/nginx.conf
+    sed -i.bak 's|./nginx/nginx\.conf:|./nginx/nginx-tls.conf:|' "${INSTALL_DIR}/docker-compose.yml"
     PROTOCOL="https"
   fi
 
