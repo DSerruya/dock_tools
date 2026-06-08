@@ -118,9 +118,24 @@ if [[ "$HOST_TYPE" == "1" ]]; then
     sudo apt-get update -qq
     curl -fsSL https://get.docker.com | sudo sh
     sudo usermod -aG docker "$USER"
-    warn "Docker installed. You may need to run 'newgrp docker' or log out/in for group changes."
+    warn "Docker installed and user added to docker group."
+    warn "The current shell session does not have the group yet — the installer will use 'sg docker' to continue."
+    DOCKER_CMD="sg docker -c"
+    NEEDS_RELOGIN=true
   else
-    success "Docker $(docker --version | awk '{print $3}' | tr -d ',')"
+    # Check if current session already has docker group access
+    if docker info &>/dev/null 2>&1; then
+      success "Docker $(docker --version | awk '{print $3}' | tr -d ',')"
+      DOCKER_CMD=""
+      NEEDS_RELOGIN=false
+    else
+      # Docker installed but group not active in this session
+      sudo usermod -aG docker "$USER" 2>/dev/null || true
+      warn "Docker is installed but this session lacks docker group access."
+      warn "Using 'sg docker' to run Docker commands in this session."
+      DOCKER_CMD="sg docker -c"
+      NEEDS_RELOGIN=true
+    fi
   fi
 
   install_pkg git  git
@@ -242,15 +257,23 @@ EOF
   section "Step 5 — Build & Deploy"
   info "Building and starting containers (this may take a few minutes)..."
   cd "$INSTALL_DIR"
-  docker compose down --remove-orphans 2>/dev/null || true
-  docker compose up -d --build || error "docker compose up failed. Run 'docker compose logs' for details."
+
+  if [[ -n "$DOCKER_CMD" ]]; then
+    $DOCKER_CMD "docker compose down --remove-orphans" 2>/dev/null || true
+    $DOCKER_CMD "docker compose up -d --build" \
+      || error "docker compose up failed. Run 'sg docker -c \"docker compose logs\"' for details."
+  else
+    docker compose down --remove-orphans 2>/dev/null || true
+    docker compose up -d --build \
+      || error "docker compose up failed. Run 'docker compose logs' for details."
+  fi
   success "Containers started"
 
   # ── Validate services ─────────────────────────────────────────────────────────
   section "Step 6 — Validate Services"
 
   sleep 4
-  docker compose ps
+  [[ -n "$DOCKER_CMD" ]] && $DOCKER_CMD "docker compose ps" || docker compose ps
   echo ""
 
   BASE_URL="${PROTOCOL}://localhost:${MANAGER_PORT}"
@@ -264,9 +287,17 @@ EOF
 
   # Verify volume mount inside manager container
   info "Verifying volume mount inside manager container..."
-  MGR_CONTAINER=$(docker compose ps -q manager 2>/dev/null | head -1 || echo "")
+  if [[ -n "$DOCKER_CMD" ]]; then
+    MGR_CONTAINER=$($DOCKER_CMD "docker compose ps -q manager" 2>/dev/null | head -1 || echo "")
+  else
+    MGR_CONTAINER=$(docker compose ps -q manager 2>/dev/null | head -1 || echo "")
+  fi
   if [[ -n "$MGR_CONTAINER" ]]; then
-    MOUNT_CHECK=$(docker exec "$MGR_CONTAINER" ls /app/scripts-data 2>/dev/null && echo "ok" || echo "fail")
+    if [[ -n "$DOCKER_CMD" ]]; then
+      MOUNT_CHECK=$($DOCKER_CMD "docker exec $MGR_CONTAINER ls /app/scripts-data" 2>/dev/null && echo "ok" || echo "fail")
+    else
+      MOUNT_CHECK=$(docker exec "$MGR_CONTAINER" ls /app/scripts-data 2>/dev/null && echo "ok" || echo "fail")
+    fi
     if [[ "$MOUNT_CHECK" == "ok" ]]; then
       success "Volume mount /app/scripts-data is working"
     else
@@ -583,3 +614,8 @@ echo ""
 echo -e "  ${YELLOW}Webhook URL format:  ${BASE_URL}/webhook/<script-name>${RESET}"
 echo -e "  ${YELLOW}Save the webhook secret — you will need it when connecting GitHub.${RESET}"
 echo ""
+if [[ "${NEEDS_RELOGIN:-false}" == "true" ]]; then
+echo -e "  ${BOLD}${YELLOW}NOTE:${RESET} Log out and back in (or run 'newgrp docker') so future"
+echo -e "  docker commands work without 'sg docker'. The stack is already running."
+echo ""
+fi
