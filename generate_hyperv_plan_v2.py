@@ -561,7 +561,7 @@ pdf.table(
     ["Step", "What happens", "Mode"],
     [
         ["1 - Deployment target",    "Choose Docker Compose (Ubuntu/Debian) or Rancher/K8s",   "Both"],
-        ["2 - Dependencies",         "Installs Docker, git, curl if missing",                  "Compose"],
+        ["2 - Dependencies",         "Installs Docker, git, curl; handles docker group session fix","Compose"],
         ["2 - Prerequisites",        "Checks kubectl, docker, cluster context",                "Rancher"],
         ["3 - Install directory",    "Clones repo or pulls latest; creates scripts-data dir",  "Both"],
         ["4 - Configuration",        "Asks all .env values interactively (see table below)",   "Both"],
@@ -607,6 +607,14 @@ pdf.warning_box(
     "If the demo script fails with 'package.json not found', HOST_SCRIPTS_DATA_PATH is wrong. "
     "The installer sets this automatically - if you cloned to ~/dock-tools the value is "
     "~/dock-tools/scripts-data. Verify with: grep HOST_SCRIPTS_DATA_PATH ~/dock-tools/.env"
+)
+
+pdf.warning_box(
+    "Docker group permission denied? This happens right after Docker is first installed "
+    "because the current shell session does not have the docker group yet. "
+    "The installer handles this automatically using 'sg docker -c' for all Docker commands. "
+    "After install, log out and back in (or run 'newgrp docker') so future manual "
+    "docker commands work without sudo."
 )
 
 pdf.body("Rancher/K8s path (Step 6) additional steps:")
