@@ -581,19 +581,21 @@ pdf.table(
 
 pdf.body("All .env values collected during Step 4:")
 pdf.table(
-    ["Variable", "Description", "Default / Example"],
+    ["Variable", "Description", "Default"],
     [
-        ["Webhook secret",        "HMAC-SHA256 key for GitHub webhooks",     "Auto-generated (openssl rand -hex 32)"],
-        ["Timezone",              "Default timezone for cron schedules",      "Auto-detected from system"],
-        ["HTTP port",             "Port nginx listens on",                    "80"],
-        ["HTTPS port",            "TLS port (only if TLS enabled)",           "443"],
-        ["UI username",           "Web UI login username",                    "admin"],
-        ["UI password",           "Web UI login password (required)",         "You choose"],
-        ["TLS enabled?",          "Generate self-signed cert and use HTTPS",  "No (optional)"],
-        ["scripts-data path",     "HOST_SCRIPTS_DATA_PATH on host",           "~/dock-tools/scripts-data"],
+        ["Webhook secret",    "HMAC-SHA256 key for GitHub webhooks",    "Auto-generated (openssl rand -hex 32)"],
+        ["Timezone",          "Default timezone for cron schedules",    "Auto-detected from system"],
+        ["HTTP port",         "Host port mapped to nginx container",    "8484  (avoids conflicts with system port 80)"],
+        ["HTTPS port",        "TLS port (only if TLS enabled)",         "8443  (avoids conflicts with system port 443)"],
+        ["UI username",       "Web UI login username",                  "admin"],
+        ["UI password",       "Web UI login password (required)",       "You choose - cannot be empty"],
+        ["TLS enabled?",      "Generate self-signed cert, use HTTPS",   "No (optional)"],
+        ["scripts-data path", "HOST_SCRIPTS_DATA_PATH on host",         "~/dock-tools/scripts-data (auto-set)"],
     ],
-    [40, 75, 67],
+    [35, 72, 75],
 )
+pdf.note("Ports 80 and 443 require root privileges on Linux and are often occupied by other "
+         "services on cloud servers. The installer defaults to 8484/8443 which work without sudo.")
 
 pdf.body("Demo script (Step 7) - validates the full pipeline end-to-end:")
 pdf.table(
@@ -615,12 +617,32 @@ pdf.warning_box(
 )
 
 pdf.warning_box(
-    "Docker group permission denied? This happens right after Docker is first installed "
-    "because the current shell session does not have the docker group yet. "
-    "The installer handles this automatically using 'sg docker -c' for all Docker commands. "
-    "After install, log out and back in (or run 'newgrp docker') so future manual "
-    "docker commands work without sudo."
+    "Docker group permission denied? The installer detects this automatically and uses "
+    "'sudo docker' for the session. After install completes, reconnect your SSH session "
+    "so future docker commands work without sudo. "
+    "Do NOT run 'newgrp docker' on a headless server - it causes 'Cannot open display' errors."
 )
+
+pdf.body("docker-compose.yml key fixes applied (auto-applied via git pull):")
+pdf.table(
+    ["Fix", "What was wrong", "What was fixed"],
+    [
+        ["UI_PASSWORD not passed",  "Manager started without auth - UI was publicly open",  "Added UI_USERNAME and UI_PASSWORD to manager environment"],
+        ["Wrong default ports",     "Port 80/443 default caused conflicts on cloud servers","Changed fallback defaults to 8484/8443 in docker-compose.yml"],
+        ["Obsolete version field",  "version: '3.8' caused a warning on every compose run", "Removed the version attribute"],
+    ],
+    [38, 72, 72],
+)
+pdf.body("After pulling these fixes, restart the stack:")
+pdf.code_block([
+    "cd ~/dock-tools",
+    "git pull",
+    "sudo docker compose down",
+    "sudo docker compose up -d",
+    "",
+    "# Confirm UI_PASSWORD reached the manager",
+    "sudo docker exec script-manager env | grep UI_PASSWORD",
+])
 
 pdf.body("Rancher/K8s path (Step 6) additional steps:")
 pdf.code_block([
