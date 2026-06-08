@@ -695,6 +695,74 @@ pdf.code_block([
     "sudo docker exec script-manager env | grep -E 'UI_|HOST_|WEBHOOK'",
 ])
 
+# ── Script logging ────────────────────────────────────────────────────────────
+pdf.highlight_title("Script Logging - Limits and Real-time Output", color=(20, 90, 160))
+
+pdf.body("Dock Tools captures stdout and stderr from script containers via Docker logs. "
+         "Understanding the limits and buffering behaviour prevents missing output in the UI.")
+
+pdf.table(
+    ["Scenario", "Line limit", "Real-time?"],
+    [
+        ["Logs tab - snapshot on open",    "Last 500 lines",             "Yes - then streams live"],
+        ["/api/scripts/:name/logs",        "Last 200 lines (default)",   "No - snapshot only"],
+        ["/api/scripts/:name/logs?tail=N", "N lines (your choice)",      "No - snapshot only"],
+        ["Live stream while running",      "No limit",                   "Yes - SSE real-time"],
+        ["Log file on disk (scripts-data)","No limit - kept forever",    "N/A - persistent file"],
+    ],
+    [65, 42, 75],
+)
+
+pdf.body("Ruby stdout buffering - the most common reason logs appear empty or delayed:")
+pdf.body("Ruby buffers stdout by default when running non-interactively inside a container. "
+         "Output is held in an 8 KB internal buffer and only flushed when it fills up or "
+         "the script exits - so 'puts' lines may not appear for minutes in the live log view.")
+
+pdf.table(
+    ["Fix", "How to apply", "Changes script?"],
+    [
+        ["$stdout.sync = true",   "Add at top of Ruby script",              "Yes"],
+        ["stdbuf -o0 ruby main.rb","Set as the entry point in Dock Tools UI","No"],
+    ],
+    [45, 80, 57],
+)
+
+pdf.body("Option 1 - add to the Ruby script (fix travels with the code):")
+pdf.code_block([
+    "$stdout.sync = true",
+    "$stderr.sync = true",
+    "",
+    "puts 'Script started'",
+    "loop do",
+    "  puts \"#{Time.now} - doing work...\"",
+    "  sleep 5",
+    "end",
+])
+
+pdf.body("Option 2 - set in the Dock Tools entry point field (no code change needed):")
+pdf.code_block([
+    "stdbuf -o0 ruby main.rb",
+])
+pdf.note("Use stdbuf when the script is from a GitHub repo you do not control or "
+         "when you cannot edit the source. It forces unbuffered output at the OS level "
+         "and works for all output including stdout and stderr.")
+
+pdf.table(
+    ["Language", "Buffering fix"],
+    [
+        ["Ruby",       "$stdout.sync = true  OR  stdbuf -o0 ruby main.rb"],
+        ["Python",     "sys.stdout.flush() after each print  OR  python -u main.py"],
+        ["Node.js",    "No buffering issue - console.log() is unbuffered by default"],
+    ],
+    [25, 157],
+)
+
+pdf.body("Override the default 200-line API limit to get more log history:")
+pdf.code_block([
+    "# Get last 5000 lines via API",
+    "curl -u admin:password http://192.168.100.2:8484/api/scripts/my-script/logs?tail=5000",
+])
+
 # ── Network diagnosis ─────────────────────────────────────────────────────────
 pdf.phase_title("Network Diagnosis Checklist")
 pdf.table(
