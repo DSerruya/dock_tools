@@ -278,13 +278,53 @@ EOF
   [[ -n "$DOCKER_CMD" ]] && $DOCKER_CMD docker compose ps || docker compose ps
   echo ""
 
-  BASE_URL="${PROTOCOL}://localhost:${MANAGER_PORT}"
+  # Use correct port for TLS vs plain HTTP
+  if [[ "$USE_TLS" == "true" ]]; then
+    BASE_URL="https://localhost:${MANAGER_TLS_PORT}"
+  else
+    BASE_URL="http://localhost:${MANAGER_PORT}"
+  fi
 
-  if wait_for "$BASE_URL" 20 3; then
+  # Show container status first
+  info "Container status:"
+  if [[ -n "$DOCKER_CMD" ]]; then
+    $DOCKER_CMD docker compose ps
+  else
+    docker compose ps
+  fi
+  echo ""
+
+  # Check all containers are actually running before health check
+  if [[ -n "$DOCKER_CMD" ]]; then
+    EXITED=$($DOCKER_CMD docker compose ps --status exited 2>/dev/null | grep -v "^NAME" | wc -l)
+  else
+    EXITED=$(docker compose ps --status exited 2>/dev/null | grep -v "^NAME" | wc -l)
+  fi
+
+  if [[ "$EXITED" -gt 0 ]]; then
+    warn "One or more containers exited unexpectedly. Showing logs..."
+    echo ""
+    if [[ -n "$DOCKER_CMD" ]]; then
+      $DOCKER_CMD docker compose logs --tail=30
+    else
+      docker compose logs --tail=30
+    fi
+    echo ""
+    warn "Fix the errors above and re-run the installer."
+    warn "Common causes: port 80 already in use, missing .env values, low disk space."
+  elif wait_for "$BASE_URL" 20 3; then
     success "Web UI is responding at ${BASE_URL}"
   else
-    warn "Web UI not responding yet. Services may still be starting."
-    warn "Run: docker compose logs  (inside ${INSTALL_DIR})"
+    warn "Web UI not responding at ${BASE_URL}. Showing logs for diagnosis..."
+    echo ""
+    if [[ -n "$DOCKER_CMD" ]]; then
+      $DOCKER_CMD docker compose logs --tail=40
+    else
+      docker compose logs --tail=40
+    fi
+    echo ""
+    warn "If nginx shows 'bind: address already in use', port ${MANAGER_PORT} is taken."
+    warn "Re-run the installer and choose a different port (e.g. 8080)."
   fi
 
   # Verify volume mount inside manager container
@@ -305,7 +345,10 @@ EOF
     else
       warn "Volume mount check failed. HOST_SCRIPTS_DATA_PATH may be incorrect."
       warn "Current value: ${SCRIPTS_DATA_DIR}"
+      warn "Check: sudo docker inspect \$(sudo docker compose ps -q manager) | grep -A3 Mounts"
     fi
+  else
+    warn "Manager container not found — it may have exited. Check logs above."
   fi
 
   # ── Demo script ───────────────────────────────────────────────────────────────
@@ -314,7 +357,14 @@ EOF
   echo "  starts it, and verifies the full pipeline is working end-to-end."
   echo ""
 
-  if confirm "Run the demo script test?"; then
+  # Only offer demo if web UI is actually reachable
+  UI_UP=false
+  curl -sf --max-time 5 "$BASE_URL" &>/dev/null && UI_UP=true
+
+  if [[ "$UI_UP" == "false" ]]; then
+    warn "Skipping demo — web UI is not reachable at ${BASE_URL}."
+    warn "Fix the container errors shown above, then re-run the installer."
+  elif confirm "Run the demo script test?"; then
     DEMO_NAME="demo-heartbeat"
     DEMO_REPO_DIR="${SCRIPTS_DATA_DIR}/_demo-repo"
 
@@ -397,13 +447,15 @@ PYEOF
     else
       warn "Repo directory not found yet at: ${SCRIPTS_DATA_DIR}/${DEMO_NAME}/repo"
     fi
-  fi
+  fi  # end elif UI_UP
 
   # ── GitHub connectivity test ──────────────────────────────────────────────────
   section "Step 8 — GitHub Connectivity Test (optional)"
   echo "  Tests that the manager can clone from a real public GitHub repository."
   echo ""
-  if confirm "Run GitHub connectivity test?" "n"; then
+  if [[ "$UI_UP" == "false" ]]; then
+    warn "Skipping GitHub test — web UI is not reachable."
+  elif confirm "Run GitHub connectivity test?" "n"; then
     ask "Public GitHub repo URL [https://github.com/DSerruya/dock_tools.git]:"
     read -r TEST_REPO
     TEST_REPO="${TEST_REPO:-https://github.com/DSerruya/dock_tools.git}"
@@ -430,7 +482,7 @@ PYEOF
         -u "${UI_USERNAME}:${UI_PASSWORD}" &>/dev/null || true
       info "GitHub test script removed"
     fi
-  fi
+  fi  # end elif UI_UP
 
   # ── Auto-start on reboot ──────────────────────────────────────────────────────
   section "Step 9 — Auto-start on Reboot"
