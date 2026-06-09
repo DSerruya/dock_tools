@@ -482,6 +482,23 @@
 
   <!-- ── Logs tab ── -->
   <div id="tab-logs" class="tab-panel">
+
+    <!-- System update log card — hidden until an update has run -->
+    <div id="sys-log-card" style="display:none;background:var(--surface);border:1px solid var(--border);
+         border-radius:8px;padding:14px;margin-bottom:18px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div style="font-size:13px;font-weight:600">🔄 System Update Log</div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span id="sys-log-badge" style="font-size:12px"></span>
+          <button class="btn btn-ghost btn-sm" onclick="document.getElementById('sys-log-card').style.display='none'">✕</button>
+        </div>
+      </div>
+      <div id="sys-log-output"
+           style="font-family:'Courier New',monospace;font-size:11px;background:#0a0c12;
+                  border:1px solid var(--border);border-radius:6px;padding:10px;
+                  max-height:200px;overflow-y:auto;color:#a3e635;white-space:pre-wrap;word-break:break-all"></div>
+    </div>
+
     <div class="table-toolbar">
       <div style="display:flex;gap:8px;align-items:center">
         <label style="margin:0;text-transform:none;letter-spacing:0;color:var(--muted)">Filter script:</label>

@@ -622,6 +622,8 @@ function _pollUpdateStatus() {
       const badge = document.getElementById('sys-update-badge');
       log.textContent = s.log || '';
       log.scrollTop   = log.scrollHeight;
+      // Keep Logs tab card in sync while update is running
+      _refreshSysLogCard();
 
       if (s.status === 'cloning') {
         badge.textContent = 'Cloning…';  badge.style.color = 'var(--accent)';
@@ -811,8 +813,28 @@ async function loadLogs() {
     document.getElementById('logs-count').textContent = `${runs.length} run${runs.length===1?'':'s'}`;
     renderRunsTable(runs);
     document.getElementById('refresh-label').textContent = `Updated ${new Date().toLocaleTimeString()}`;
+
+    // Show system update log if there is any update activity
+    _refreshSysLogCard();
   } catch (e) { toast('Failed to load logs: ' + e.message, 'error'); }
   finally { setLoading(false); }
+}
+
+async function _refreshSysLogCard() {
+  try {
+    const s = await api('GET', '/api/admin/update/status');
+    if (!s || !s.log) return;
+    const card   = document.getElementById('sys-log-card');
+    const output = document.getElementById('sys-log-output');
+    const badge  = document.getElementById('sys-log-badge');
+    card.style.display  = 'block';
+    output.textContent  = s.log;
+    output.scrollTop    = output.scrollHeight;
+    const statusColor = { cloning:'var(--accent)', building:'var(--yellow)', done:'var(--green)', error:'var(--red)' }[s.status] || 'var(--muted)';
+    const statusLabel = { cloning:'Cloning…', building:'Building…', done:'Complete', error:`Error: ${s.error||''}`, idle:'' }[s.status] || s.status;
+    badge.textContent  = statusLabel;
+    badge.style.color  = statusColor;
+  } catch (_) { /* admin endpoint may not be accessible for non-admin roles */ }
 }
 
 function renderRunsTable(runs) {
