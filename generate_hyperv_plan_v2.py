@@ -597,7 +597,7 @@ pdf.table(
 pdf.note("Ports 80 and 443 require root privileges on Linux and are often occupied by other "
          "services on cloud servers. The installer defaults to 8484/8443 which work without sudo.")
 
-pdf.body("Demo script (Step 7) - validates the full pipeline end-to-end:")
+pdf.body("Demo script (Step 7) - validates the local pipeline end-to-end:")
 pdf.table(
     ["Check", "How it works"],
     [
@@ -608,6 +608,58 @@ pdf.table(
         ["scripts-data populated", "Checks that <scripts-data>/demo-heartbeat/repo exists on host"],
     ],
     [45, 137],
+)
+pdf.note("demo-heartbeat (Python) stays running after install as a permanent pipeline health indicator.")
+
+pdf.body("GitHub PAT and webhook test (Step 8) - validates GitHub connectivity:")
+pdf.table(
+    ["Test", "What is checked", "Cleaned up?"],
+    [
+        ["PAT validation",  "Calls api.github.com/user with the token, confirms authenticated username", "N/A"],
+        ["Git clone",       "Direct clone of dock_tools_test repo (with PAT or public)",                "Yes"],
+        ["Webhook delivery","Signed HMAC-SHA256 POST to /webhook/git-test, signature validated",        "Yes"],
+        ["Log output",      "Fetches logs to confirm stdbuf -o0 stdout fix is working",                 "Yes"],
+    ],
+    [30, 100, 52],
+)
+
+pdf.body("Test repo used by the installer:")
+pdf.table(
+    ["Field", "Value"],
+    [
+        ["URL",        "https://github.com/DSerruya/dock_tools_test"],
+        ["Visibility", "Public - no PAT required for clone"],
+        ["Script",     "main.rb - Ruby heartbeat with $stdout.sync = true"],
+        ["Entry point","stdbuf -o0 ruby main.rb"],
+        ["Purpose",    "Validates git clone, webhook, and log streaming in one test"],
+    ],
+    [30, 152],
+)
+pdf.code_block([
+    "# main.rb content (dock_tools_test repo):",
+    "$stdout.sync = true",
+    "$stderr.sync = true",
+    "",
+    'puts "=" * 55',
+    'puts "  Dock Tools - Git & Log Test"',
+    'puts "  Started: #{Time.now}"',
+    'puts "=" * 55',
+    "count = 0",
+    "loop do",
+    "  count += 1",
+    '  puts "[#{Time.now.strftime("%H:%M:%S")}] heartbeat ##{count} - pipeline OK"',
+    "  sleep 5",
+    "end",
+])
+
+pdf.body("What remains in Dock Tools UI after a full install:")
+pdf.table(
+    ["Script", "Language", "Remains?", "Purpose"],
+    [
+        ["demo-heartbeat", "Python", "Yes - permanent", "Local pipeline health check"],
+        ["git-test",       "Ruby",   "No - cleaned up", "GitHub/webhook test only"],
+    ],
+    [35, 25, 35, 87],
 )
 
 pdf.warning_box(
