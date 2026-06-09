@@ -724,7 +724,7 @@ pdf.body("HowTo? modal - field examples per language:")
 pdf.table(
     ["Language", "Entry Point", "Build Command", "Key note"],
     [
-        ["Ruby",       "stdbuf -o0 ruby main.rb",  "bundle install",                   "stdout buffering fix included"],
+        ["Ruby",       "ruby main.rb",              "bundle install",                   "$stdout.sync=true in script for live logs"],
         ["Python",     "python -u main.py",         "pip install -r requirements.txt",  "-u flag = unbuffered output"],
         ["Node.js",    "node index.js",             "npm install",                      "No buffering issues"],
         ["TypeScript", "npx ts-node index.ts",      "npm install",                      "Or: npm run build + node dist/index.js"],
@@ -741,7 +741,7 @@ pdf.table(
         ["Language",      "Ruby"],
         ["Repo URL",      "https://github.com/DSerruya/dock_tools_test.git"],
         ["Branch",        "main"],
-        ["Entry Point",   "stdbuf -o0 ruby main.rb"],
+        ["Entry Point",   "ruby main.rb  (script has $stdout.sync=true built in)"],
         ["Build Command", "(empty - no dependencies)"],
     ],
     [35, 147],
@@ -780,10 +780,16 @@ pdf.table(
          "Run: sudo docker compose logs --tail=40  to see the exact error"],
         ["commit unknown / NaNd ago in Admin",
          "GIT_COMMIT build arg not passed at docker compose build time",
-         "git pull + docker compose down && up -d --build (installer now exports GIT_COMMIT)"],
+         "git pull + docker compose down && up -d --build (installer exports GIT_COMMIT)"],
         ["Update available loop after clicking Update",
          "process.exit(0) restarted container with OLD image ID, not new image",
-         "git pull - update now recreates the container from the new image"],
+         "git pull - update now recreates container with health check and rollback"],
+        ["502 Bad Gateway after self-update",
+         "New container started but 'manager' DNS alias not registered in network",
+         "git pull - network alias now set in createContainer call before start"],
+        ["Container name conflict on update",
+         "Previous partial update left script-manager-old container behind",
+         "sudo docker rm -f script-manager script-manager-old && docker compose up -d"],
         ["ruby: No such file or directory -- <entry point>",
          "Entry point passed as single arg to ruby, not as shell command",
          "git pull - all languages now run via sh -c so flags and prefixes work"],
@@ -791,19 +797,43 @@ pdf.table(
     [42, 60, 80],
 )
 
-pdf.body("After pulling fixes, always restart the stack to apply changes:")
+pdf.body("After pulling fixes, always restart the stack:")
 pdf.code_block([
     "cd ~/dock-tools",
     "git pull",
     "sudo docker compose down",
     "sudo docker compose up -d",
     "",
-    "# Verify containers are running",
     "sudo docker compose ps",
-    "",
-    "# Check manager received correct env vars",
     "sudo docker exec script-manager env | grep -E 'UI_|HOST_|WEBHOOK'",
 ])
+
+pdf.highlight_title("Self-Update Mechanism - How It Works", color=(20, 90, 160))
+pdf.body(
+    "The Admin tab Update button rebuilds the manager image from the latest GitHub source "
+    "and replaces the running container. The process runs entirely inside the container "
+    "using the Docker socket."
+)
+pdf.table(
+    ["Step", "What happens"],
+    [
+        ["1 - Clone",         "Clones dock_tools repo to /tmp at the latest commit"],
+        ["2 - Build",         "Builds dock-tools-manager:latest with GIT_COMMIT + BUILD_TIME baked in"],
+        ["3 - Clean up",      "Removes any leftover script-manager-old from a previous failed update"],
+        ["4 - Rename self",   "Renames script-manager -> script-manager-old to free the container name"],
+        ["5 - Create new",    "Creates script-manager from new image with network alias 'manager'"],
+        ["6 - Health check",  "Waits up to 20s for new container to stay Running"],
+        ["7a - Pass",         "Sets restart policy to 'no' on old container, stops it, new container serves"],
+        ["7b - Fail (rollback)","Stops + removes new container, renames old back - zero downtime"],
+    ],
+    [32, 150],
+)
+
+pdf.warning_box(
+    "If you see 502 Bad Gateway after an update, the container recreation failed. "
+    "Recover with: sudo docker rm -f script-manager script-manager-old 2>/dev/null || true "
+    "then: cd ~/dock-tools && sudo docker compose up -d"
+)
 
 # ── Entry point reference ─────────────────────────────────────────────────────
 pdf.phase_title("Entry Point Reference - All Languages")
