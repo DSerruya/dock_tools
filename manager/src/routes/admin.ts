@@ -100,6 +100,8 @@ async function runUpdate(): Promise<void> {
     appendLog('Renamed old container.');
 
     // Step 3: Create + start the replacement container
+    // Create with no network first, then connect explicitly so the 'manager'
+    // alias is guaranteed to be registered before nginx looks it up.
     let newCtr: Dockerode.Container;
     try {
       newCtr = await docker.createContainer({
@@ -109,18 +111,24 @@ async function runUpdate(): Promise<void> {
         HostConfig: {
           Binds:         selfInfo.HostConfig.Binds,
           RestartPolicy: { Name: 'unless-stopped', MaximumRetryCount: 0 },
-          NetworkMode:   network,
-        },
-        NetworkingConfig: {
-          EndpointsConfig: { [network]: { Aliases: ['manager'] } },
+          NetworkMode:   'none',   // connect explicitly below
         },
       });
     } catch (createErr: any) {
       // If create fails, rename ourselves back so compose can recover
-      appendLog(`Container create failed: ${createErr.message}. Rolling back rename…`);
+      appendLog(`Container create failed: ${createErr.message}. Rolling back…`);
       try { await docker.getContainer('script-manager-old').rename({ name: 'script-manager' }); } catch (_) {}
       throw createErr;
     }
+
+    // Connect to the network with the 'manager' alias BEFORE starting so
+    // Docker's embedded DNS is ready when nginx first tries to resolve it.
+    const networkObj = docker.getNetwork(network);
+    await networkObj.connect({
+      Container: newCtr.id,
+      EndpointConfig: { Aliases: ['manager', 'script-manager'] },
+    });
+    appendLog(`Connected to network '${network}' with alias 'manager'.`);
 
     await newCtr.start();
     appendLog('New container started. Stopping old…');
