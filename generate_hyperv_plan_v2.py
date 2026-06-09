@@ -706,6 +706,55 @@ pdf.code_block([
     "kubectl rollout status deployment/dock-tools-nginx   -n dock-tools --timeout=120s",
 ])
 
+# ── UI features ───────────────────────────────────────────────────────────────
+pdf.highlight_title("UI Features - HowTo? and Admin Quick-Add", color=(20, 90, 160))
+
+pdf.body("Two UI additions make adding and configuring scripts faster:")
+
+pdf.table(
+    ["Feature", "Where", "What it does"],
+    [
+        ["? button",                "Top-right header, next to user badge",     "Opens HowTo modal with per-language field examples and copy buttons"],
+        ["Heartbeat quick-add card","Admin tab, top of page",                   "Pre-fills Add Script modal with dock_tools_test Ruby heartbeat values"],
+    ],
+    [38, 65, 79],
+)
+
+pdf.body("HowTo? modal - field examples per language:")
+pdf.table(
+    ["Language", "Entry Point", "Build Command", "Key note"],
+    [
+        ["Ruby",       "stdbuf -o0 ruby main.rb",  "bundle install",                   "stdout buffering fix included"],
+        ["Python",     "python -u main.py",         "pip install -r requirements.txt",  "-u flag = unbuffered output"],
+        ["Node.js",    "node index.js",             "npm install",                      "No buffering issues"],
+        ["TypeScript", "npx ts-node index.ts",      "npm install",                      "Or: npm run build + node dist/index.js"],
+    ],
+    [28, 55, 55, 44],
+)
+pdf.note("Every field in the HowTo modal has a copy button. Click it to copy the value directly into the clipboard.")
+
+pdf.body("Heartbeat quick-add (Admin tab) pre-fills the Add Script modal with:")
+pdf.table(
+    ["Field", "Pre-filled value"],
+    [
+        ["Name",          "heartbeat-test"],
+        ["Language",      "Ruby"],
+        ["Repo URL",      "https://github.com/DSerruya/dock_tools_test.git"],
+        ["Branch",        "main"],
+        ["Entry Point",   "stdbuf -o0 ruby main.rb"],
+        ["Build Command", "(empty - no dependencies)"],
+    ],
+    [35, 147],
+)
+pdf.note("All fields are editable before submitting. Add a GitHub Token if you fork the repo as private.")
+
+pdf.body("To pick up UI changes after a git pull, restart the stack:")
+pdf.code_block([
+    "cd ~/dock-tools",
+    "git pull",
+    "sudo docker compose restart",
+])
+
 # ── Dock Tools troubleshooting ────────────────────────────────────────────────
 pdf.phase_title("Dock Tools Troubleshooting")
 pdf.table(
