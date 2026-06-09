@@ -778,8 +778,17 @@ pdf.table(
         ["Containers exited immediately",
          "Port conflict, low disk, or bad .env values",
          "Run: sudo docker compose logs --tail=40  to see the exact error"],
+        ["commit unknown / NaNd ago in Admin",
+         "GIT_COMMIT build arg not passed at docker compose build time",
+         "git pull + docker compose down && up -d --build (installer now exports GIT_COMMIT)"],
+        ["Update available loop after clicking Update",
+         "process.exit(0) restarted container with OLD image ID, not new image",
+         "git pull - update now recreates the container from the new image"],
+        ["ruby: No such file or directory -- <entry point>",
+         "Entry point passed as single arg to ruby, not as shell command",
+         "git pull - all languages now run via sh -c so flags and prefixes work"],
     ],
-    [42, 55, 85],
+    [42, 60, 80],
 )
 
 pdf.body("After pulling fixes, always restart the stack to apply changes:")
@@ -795,6 +804,48 @@ pdf.code_block([
     "# Check manager received correct env vars",
     "sudo docker exec script-manager env | grep -E 'UI_|HOST_|WEBHOOK'",
 ])
+
+# ── Entry point reference ─────────────────────────────────────────────────────
+pdf.phase_title("Entry Point Reference - All Languages")
+
+pdf.body(
+    "The Entry Point field is always run via 'sh -c' inside the container, so it supports "
+    "any valid shell command including flags, prefixes, and chained commands. "
+    "Do NOT include the interpreter if using a build command - the build command runs first, "
+    "then the entry point is executed as a shell command."
+)
+
+pdf.table(
+    ["Language", "Recommended Entry Point", "With Bundler/deps", "Stdout fix"],
+    [
+        ["Ruby",       "ruby main.rb",          "bundle exec ruby main.rb",      "$stdout.sync = true in script"],
+        ["Python",     "python -u main.py",      "python -u main.py",            "-u flag (unbuffered)"],
+        ["Node.js",    "node index.js",          "node index.js",                "No fix needed"],
+        ["TypeScript", "npx ts-node index.ts",   "node dist/index.js",           "No fix needed"],
+    ],
+    [28, 48, 50, 56],
+)
+
+pdf.warning_box(
+    "DO NOT use 'stdbuf -o0 ruby main.rb' as the entry point unless stdbuf is "
+    "installed in the container image (ruby:slim images may not include it). "
+    "Use 'ruby main.rb' with '$stdout.sync = true' inside the script instead."
+)
+
+pdf.body("Before this fix, entry points containing spaces or flags caused errors like:")
+pdf.code_block([
+    "# Entry point: stdbuf -o0 ruby main.rb",
+    "# Old behaviour (broken):",
+    "ruby 'stdbuf -o0 ruby main.rb'   <- entire string treated as filename",
+    "# Error: ruby: No such file or directory -- stdbuf -o0 ruby main.rb",
+    "",
+    "# New behaviour (fixed):",
+    "sh -c 'stdbuf -o0 ruby main.rb'  <- parsed as shell command",
+    "# Works correctly",
+])
+
+pdf.body("The heartbeat quick-add button (Admin tab) now pre-fills 'ruby main.rb' "
+         "because dock_tools_test/main.rb already has $stdout.sync = true built in.")
 
 # ── Script logging ────────────────────────────────────────────────────────────
 pdf.highlight_title("Script Logging - Limits and Real-time Output", color=(20, 90, 160))
