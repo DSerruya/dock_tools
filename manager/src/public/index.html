@@ -391,6 +391,20 @@
   <!-- ── Admin tab ── -->
   <div id="tab-admin" class="tab-panel">
 
+    <!-- Heartbeat test script card -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+        <div>
+          <div style="font-size:14px;font-weight:600;margin-bottom:4px">💎 Heartbeat Test Script</div>
+          <div style="font-size:12px;color:var(--muted);line-height:1.6">
+            Public Ruby script that validates git clone, container execution, and live log streaming.<br>
+            Repo: <code style="font-size:11px;color:var(--accent)">github.com/DSerruya/dock_tools_test</code>
+          </div>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="openHeartbeatModal()">+ Add to Scripts</button>
+      </div>
+    </div>
+
     <!-- System / version card -->
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:24px">
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">

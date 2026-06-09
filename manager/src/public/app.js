@@ -1213,3 +1213,18 @@ function howToCopy(text) {
     setTimeout(() => { btn.textContent = orig; btn.style.color = ''; }, 1200);
   });
 }
+
+// ── Heartbeat quick-add ───────────────────────────────────────────────────────
+function openHeartbeatModal() {
+  // Open the standard Add Script modal pre-filled for the heartbeat test script
+  openAddModal();
+  document.getElementById('f-name').value      = 'heartbeat-test';
+  document.getElementById('f-lang').value      = 'ruby';
+  document.getElementById('f-repo').value      = 'https://github.com/DSerruya/dock_tools_test.git';
+  document.getElementById('f-branch').value    = 'main';
+  document.getElementById('f-entry').value     = 'stdbuf -o0 ruby main.rb';
+  document.getElementById('f-buildcmd').value  = '';
+  // Trigger placeholder/hint update
+  onBuildCmdChange();
+  document.getElementById('f-entry').placeholder = 'ruby main.rb';
+}
