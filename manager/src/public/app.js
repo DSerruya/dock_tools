@@ -1222,7 +1222,7 @@ function openHeartbeatModal() {
   document.getElementById('f-lang').value      = 'ruby';
   document.getElementById('f-repo').value      = 'https://github.com/DSerruya/dock_tools_test.git';
   document.getElementById('f-branch').value    = 'main';
-  document.getElementById('f-entry').value     = 'stdbuf -o0 ruby main.rb';
+  document.getElementById('f-entry').value     = 'ruby main.rb';
   document.getElementById('f-buildcmd').value  = '';
   // Trigger placeholder/hint update
   onBuildCmdChange();

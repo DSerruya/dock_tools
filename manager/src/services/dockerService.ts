@@ -15,11 +15,19 @@ const IMAGE_MAP: Record<string, string> = {
   typescript: 'node:20-slim',
 };
 
+// Always run via sh -c so the entry point is treated as a full shell command.
+// This allows flags and prefixes such as:
+//   'ruby main.rb'           -> sh -c 'ruby main.rb'
+//   'stdbuf -o0 ruby main.rb'-> sh -c 'stdbuf -o0 ruby main.rb'
+//   'python -u main.py'      -> sh -c 'python -u main.py'
+// Previously the language name was prepended as the executable, which caused
+// 'ruby: No such file or directory -- stdbuf -o0 ruby main.rb' errors when
+// the entry point contained flags or multiple tokens.
 const CMD_MAP: Record<string, (entry: string) => string[]> = {
-  python:     e => ['python', e],
-  ruby:       e => ['ruby',   e],
-  node:       e => ['node',   e],
-  typescript: e => ['node',   e],
+  python:     e => ['sh', '-c', e],
+  ruby:       e => ['sh', '-c', e],
+  node:       e => ['sh', '-c', e],
+  typescript: e => ['sh', '-c', e],
 };
 
 function containerName(name: string): string { return `script-${name}`; }

@@ -810,7 +810,7 @@
         </div>
         <div class="howto-field">
           <div class="howto-field-label">Entry Point</div>
-          <div class="howto-field-value">stdbuf -o0 ruby main.rb <button class="howto-copy" onclick="howToCopy('stdbuf -o0 ruby main.rb')" title="Copy">⧉</button></div>
+          <div class="howto-field-value">ruby main.rb <button class="howto-copy" onclick="howToCopy('ruby main.rb')" title="Copy">⧉</button></div>
         </div>
         <div class="howto-field">
           <div class="howto-field-label">Build Command (if using Bundler)</div>
@@ -821,9 +821,10 @@
           <div class="howto-field-value">main <button class="howto-copy" onclick="howToCopy('main')" title="Copy">⧉</button></div>
         </div>
         <div class="howto-note">
-          <strong>stdout fix required:</strong> Ruby buffers stdout inside Docker. Always use
-          <code>stdbuf -o0 ruby main.rb</code> as the entry point so logs appear in real time.
-          Alternatively add <code>$stdout.sync = true</code> at the top of your Ruby file.<br><br>
+          <strong>stdout buffering:</strong> Ruby buffers stdout inside Docker so logs may not appear in real time.
+          Fix by adding <code>$stdout.sync = true</code> at the top of your Ruby script (recommended).<br>
+          If you cannot edit the script, use <code>stdbuf -o0 ruby main.rb</code> as the entry point instead —
+          but note that <code>stdbuf</code> must be available in the container image.<br><br>
           <strong>Private repo:</strong> Generate a GitHub PAT with <em>Contents: read</em> scope
           and paste it in the GitHub Token field.
         </div>
