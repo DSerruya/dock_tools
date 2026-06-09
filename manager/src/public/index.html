@@ -47,6 +47,38 @@
     }
     .refresh-icon-btn:hover { color: var(--text); background: var(--border); }
 
+    /* ── HowTo button ── */
+    .howto-btn {
+      background: none; border: 1px solid var(--border); color: var(--muted);
+      border-radius: 50%; width: 26px; height: 26px; font-size: 13px; font-weight: 700;
+      cursor: pointer; line-height: 1; transition: color .15s, border-color .15s, background .15s;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .howto-btn:hover { color: var(--accent-h); border-color: var(--accent); background: rgba(99,102,241,.1); }
+
+    /* ── HowTo modal ── */
+    .howto-modal { max-width: 680px; }
+    .howto-tabs  { display: flex; gap: 6px; margin-bottom: 18px; flex-wrap: wrap; }
+    .howto-tab   { padding: 5px 14px; border-radius: 6px; border: 1px solid var(--border);
+                   background: none; color: var(--muted); cursor: pointer; font-size: 12px;
+                   font-weight: 600; transition: all .15s; }
+    .howto-tab:hover  { border-color: var(--accent); color: var(--text); }
+    .howto-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .howto-panel { display: none; }
+    .howto-panel.active { display: block; }
+    .howto-field { margin-bottom: 14px; }
+    .howto-field-label { font-size: 11px; text-transform: uppercase; letter-spacing: .5px;
+                         color: var(--muted); margin-bottom: 4px; }
+    .howto-field-value { font-family: monospace; font-size: 13px; background: var(--bg);
+                         border: 1px solid var(--border); border-radius: 6px; padding: 7px 10px;
+                         color: var(--text); display: flex; justify-content: space-between; align-items: center; }
+    .howto-copy { background: none; border: none; color: var(--muted); cursor: pointer;
+                  font-size: 13px; padding: 0 2px; transition: color .15s; }
+    .howto-copy:hover { color: var(--accent-h); }
+    .howto-note { font-size: 12px; color: var(--muted); margin-top: 10px; line-height: 1.6;
+                  padding: 10px 12px; background: var(--bg); border-radius: 6px;
+                  border-left: 3px solid var(--accent); }
+
     /* ── Tabs ── */
     .tabs { display: flex; gap: 4px; }
     .tab-btn {
@@ -339,6 +371,7 @@
     <button class="tab-btn" id="tab-admin-btn" style="display:none" onclick="showTab('admin')">🔐 Admin</button>
   </div>
   <div class="header-actions">
+    <button class="howto-btn" onclick="openHowTo()" title="How to add a script">?</button>
     <span id="user-badge" class="role-badge" style="display:none"></span>
   </div>
 </header>
@@ -736,6 +769,137 @@
     </div>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeChangeDiff()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── HowTo Modal ── -->
+<div id="howto-modal" class="overlay hidden" onclick="if(event.target===this)closeHowTo()">
+  <div class="modal howto-modal">
+    <div class="modal-header">
+      <span class="modal-title">📖 How to add a script</span>
+      <button class="modal-close" onclick="closeHowTo()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="howto-tabs">
+        <button class="howto-tab active" onclick="showHowToTab('ruby')">💎 Ruby</button>
+        <button class="howto-tab"        onclick="showHowToTab('python')">🐍 Python</button>
+        <button class="howto-tab"        onclick="showHowToTab('node')">🟩 Node.js</button>
+        <button class="howto-tab"        onclick="showHowToTab('typescript')">🔷 TypeScript</button>
+      </div>
+
+      <!-- Ruby -->
+      <div id="howto-ruby" class="howto-panel active">
+        <div class="howto-field">
+          <div class="howto-field-label">Language</div>
+          <div class="howto-field-value">Ruby <button class="howto-copy" onclick="howToCopy('Ruby')" title="Copy">⧉</button></div>
+        </div>
+        <div class="howto-field">
+          <div class="howto-field-label">Entry Point</div>
+          <div class="howto-field-value">stdbuf -o0 ruby main.rb <button class="howto-copy" onclick="howToCopy('stdbuf -o0 ruby main.rb')" title="Copy">⧉</button></div>
+        </div>
+        <div class="howto-field">
+          <div class="howto-field-label">Build Command (if using Bundler)</div>
+          <div class="howto-field-value">bundle install <button class="howto-copy" onclick="howToCopy('bundle install')" title="Copy">⧉</button></div>
+        </div>
+        <div class="howto-field">
+          <div class="howto-field-label">Branch</div>
+          <div class="howto-field-value">main <button class="howto-copy" onclick="howToCopy('main')" title="Copy">⧉</button></div>
+        </div>
+        <div class="howto-note">
+          <strong>stdout fix required:</strong> Ruby buffers stdout inside Docker. Always use
+          <code>stdbuf -o0 ruby main.rb</code> as the entry point so logs appear in real time.
+          Alternatively add <code>$stdout.sync = true</code> at the top of your Ruby file.<br><br>
+          <strong>Private repo:</strong> Generate a GitHub PAT with <em>Contents: read</em> scope
+          and paste it in the GitHub Token field.
+        </div>
+      </div>
+
+      <!-- Python -->
+      <div id="howto-python" class="howto-panel">
+        <div class="howto-field">
+          <div class="howto-field-label">Language</div>
+          <div class="howto-field-value">Python <button class="howto-copy" onclick="howToCopy('Python')" title="Copy">⧉</button></div>
+        </div>
+        <div class="howto-field">
+          <div class="howto-field-label">Entry Point</div>
+          <div class="howto-field-value">python -u main.py <button class="howto-copy" onclick="howToCopy('python -u main.py')" title="Copy">⧉</button></div>
+        </div>
+        <div class="howto-field">
+          <div class="howto-field-label">Build Command (if using pip)</div>
+          <div class="howto-field-value">pip install -r requirements.txt <button class="howto-copy" onclick="howToCopy('pip install -r requirements.txt')" title="Copy">⧉</button></div>
+        </div>
+        <div class="howto-field">
+          <div class="howto-field-label">Branch</div>
+          <div class="howto-field-value">main <button class="howto-copy" onclick="howToCopy('main')" title="Copy">⧉</button></div>
+        </div>
+        <div class="howto-note">
+          <strong>stdout fix:</strong> Use <code>python -u main.py</code> (unbuffered mode) so
+          <code>print()</code> output appears immediately in logs. Alternatively call
+          <code>sys.stdout.flush()</code> after each print or set <code>PYTHONUNBUFFERED=1</code>
+          as an environment variable.<br><br>
+          <strong>requirements.txt:</strong> If your repo has a <code>requirements.txt</code>,
+          add <code>pip install -r requirements.txt</code> as the Build Command.
+        </div>
+      </div>
+
+      <!-- Node.js -->
+      <div id="howto-node" class="howto-panel">
+        <div class="howto-field">
+          <div class="howto-field-label">Language</div>
+          <div class="howto-field-value">Node.js <button class="howto-copy" onclick="howToCopy('Node.js')" title="Copy">⧉</button></div>
+        </div>
+        <div class="howto-field">
+          <div class="howto-field-label">Entry Point</div>
+          <div class="howto-field-value">node index.js <button class="howto-copy" onclick="howToCopy('node index.js')" title="Copy">⧉</button></div>
+        </div>
+        <div class="howto-field">
+          <div class="howto-field-label">Build Command (if using npm)</div>
+          <div class="howto-field-value">npm install <button class="howto-copy" onclick="howToCopy('npm install')" title="Copy">⧉</button></div>
+        </div>
+        <div class="howto-field">
+          <div class="howto-field-label">Branch</div>
+          <div class="howto-field-value">main <button class="howto-copy" onclick="howToCopy('main')" title="Copy">⧉</button></div>
+        </div>
+        <div class="howto-note">
+          <strong>No buffering issues:</strong> <code>console.log()</code> is unbuffered by
+          default in Node.js — logs appear in real time without any extra flags.<br><br>
+          <strong>package.json required:</strong> Your repo must have a <code>package.json</code>
+          at the root if you set a Build Command. Without it the container will error on
+          <code>npm install</code>.
+        </div>
+      </div>
+
+      <!-- TypeScript -->
+      <div id="howto-typescript" class="howto-panel">
+        <div class="howto-field">
+          <div class="howto-field-label">Language</div>
+          <div class="howto-field-value">TypeScript <button class="howto-copy" onclick="howToCopy('TypeScript')" title="Copy">⧉</button></div>
+        </div>
+        <div class="howto-field">
+          <div class="howto-field-label">Entry Point</div>
+          <div class="howto-field-value">npx ts-node index.ts <button class="howto-copy" onclick="howToCopy('npx ts-node index.ts')" title="Copy">⧉</button></div>
+        </div>
+        <div class="howto-field">
+          <div class="howto-field-label">Build Command</div>
+          <div class="howto-field-value">npm install <button class="howto-copy" onclick="howToCopy('npm install')" title="Copy">⧉</button></div>
+        </div>
+        <div class="howto-field">
+          <div class="howto-field-label">Branch</div>
+          <div class="howto-field-value">main <button class="howto-copy" onclick="howToCopy('main')" title="Copy">⧉</button></div>
+        </div>
+        <div class="howto-note">
+          <strong>ts-node:</strong> Use <code>npx ts-node index.ts</code> to run TypeScript
+          directly without a separate compile step. Requires <code>typescript</code> and
+          <code>ts-node</code> in your <code>package.json</code> devDependencies.<br><br>
+          <strong>Pre-compiled:</strong> Alternatively compile first —
+          set Build Command to <code>npm install &amp;&amp; npm run build</code>
+          and Entry Point to <code>node dist/index.js</code>.
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeHowTo()">Close</button>
     </div>
   </div>
 </div>

@@ -1192,3 +1192,24 @@ refreshInterval = setInterval(() => {
   else if (currentTab === 'audit') loadAudit();
   else if (currentTab === 'admin') loadUsers();
 }, 10000);
+
+// ── HowTo modal ──────────────────────────────────────────────────────────────
+function openHowTo()  { document.getElementById('howto-modal').classList.remove('hidden'); }
+function closeHowTo() { document.getElementById('howto-modal').classList.add('hidden'); }
+
+function showHowToTab(lang) {
+  document.querySelectorAll('.howto-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.howto-panel').forEach(p => p.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById('howto-' + lang).classList.add('active');
+}
+
+function howToCopy(text) {
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = event.target;
+    const orig = btn.textContent;
+    btn.textContent = '✓';
+    btn.style.color = 'var(--green)';
+    setTimeout(() => { btn.textContent = orig; btn.style.color = ''; }, 1200);
+  });
+}
