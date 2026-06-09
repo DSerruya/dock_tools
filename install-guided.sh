@@ -263,6 +263,14 @@ EOF
   info "Building and starting containers (this may take a few minutes)..."
   cd "$INSTALL_DIR"
 
+  # Export build args so docker-compose passes GIT_COMMIT and BUILD_TIME
+  # into the Dockerfile — this fixes "commit unknown" in the Admin panel.
+  export GIT_COMMIT
+  GIT_COMMIT=$(git -C "$INSTALL_DIR" rev-parse HEAD 2>/dev/null || echo "unknown")
+  export BUILD_TIME
+  BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  info "Build stamp: ${GIT_COMMIT:0:7} @ ${BUILD_TIME}"
+
   if [[ -n "$DOCKER_CMD" ]]; then
     $DOCKER_CMD docker compose down --remove-orphans 2>/dev/null || true
     $DOCKER_CMD docker compose up -d --build \

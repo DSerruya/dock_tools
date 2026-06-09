@@ -1,6 +1,10 @@
 services:
   manager:
-    build: ./manager
+    build:
+      context: ./manager
+      args:
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
+        BUILD_TIME: ${BUILD_TIME:-unknown}
     container_name: script-manager
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock

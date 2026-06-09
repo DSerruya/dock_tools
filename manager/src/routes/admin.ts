@@ -67,11 +67,47 @@ async function runUpdate(): Promise<void> {
     updateState.status = 'building';
     appendLog('Building new Docker image …');
     await buildImage(path.join(tmpDir, 'manager'), commitSha);
-    appendLog('Build successful. Restarting …');
+    appendLog('Build complete. Recreating container with new image …');
+
+    // Recreate the container so the new image is actually used.
+    // process.exit(0) alone only restarts with the OLD image ID stored in the
+    // container config — Docker does not re-resolve the tag on restart.
+    // Instead: rename self → create new container with freed name → start it → stop self.
+    const selfCtr  = docker.getContainer('script-manager');
+    const selfInfo = await selfCtr.inspect();
+    const network  = Object.keys(selfInfo.NetworkSettings.Networks)[0] || 'script-network';
+
+    // Free up the container name
+    await selfCtr.rename({ name: 'script-manager-old' });
+    appendLog('Renamed old container.');
+
+    // Create the replacement container with the same mounts and env
+    const newCtr = await docker.createContainer({
+      name:  'script-manager',
+      Image: IMAGE_TAG,
+      Env:   selfInfo.Config.Env,
+      HostConfig: {
+        Binds:         selfInfo.HostConfig.Binds,
+        RestartPolicy: { Name: 'unless-stopped', MaximumRetryCount: 0 },
+        NetworkMode:   network,
+      },
+      NetworkingConfig: {
+        EndpointsConfig: { [network]: { Aliases: ['manager'] } },
+      },
+    });
+    await newCtr.start();
+    appendLog('New container started.');
 
     updateState.status = 'done';
-    // Give the frontend one last status poll before we exit
-    setTimeout(() => process.exit(0), 800);
+    // Stop ourselves — the new container is already serving traffic.
+    // docker.getContainer().stop() sends SIGTERM; our process will exit naturally.
+    setTimeout(async () => {
+      try {
+        const old = docker.getContainer('script-manager-old');
+        await old.stop({ t: 5 });
+        await old.remove({ force: true });
+      } catch (_) { /* process dies here — that's expected */ }
+    }, 800);
   } catch (err: any) {
     updateState.status = 'error';
     updateState.error  = err.message;
