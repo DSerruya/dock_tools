@@ -70,43 +70,69 @@ async function runUpdate(): Promise<void> {
     appendLog('Build complete. Recreating container with new image …');
 
     // Recreate the container so the new image is actually used.
-    // process.exit(0) alone only restarts with the OLD image ID stored in the
-    // container config — Docker does not re-resolve the tag on restart.
-    // Instead: rename self → create new container with freed name → start it → stop self.
+    // process.exit(0) alone only restarts with the OLD image ID — Docker does
+    // not re-resolve the tag on restart. Strategy:
+    //   1. Clean up any leftover containers from a previous failed update
+    //   2. Rename ourselves → free up the name
+    //   3. Create + start new container under the original name
+    //   4. Stop + remove ourselves (process exits naturally here)
     const selfCtr  = docker.getContainer('script-manager');
     const selfInfo = await selfCtr.inspect();
+    const selfId   = selfInfo.Id;
     const network  = Object.keys(selfInfo.NetworkSettings.Networks)[0] || 'script-network';
 
-    // Free up the container name
+    // Step 1: Remove any leftover containers from a previous partial update
+    for (const leftover of ['script-manager-old']) {
+      try {
+        const c = docker.getContainer(leftover);
+        const info = await c.inspect();
+        // Only remove if it's not us (different container ID)
+        if (info.Id !== selfId) {
+          if (info.State.Running) await c.stop({ t: 3 });
+          await c.remove({ force: true });
+          appendLog(`Removed stale container: ${leftover}`);
+        }
+      } catch (_) { /* container doesn't exist — fine */ }
+    }
+
+    // Step 2: Rename ourselves to free the name
     await selfCtr.rename({ name: 'script-manager-old' });
     appendLog('Renamed old container.');
 
-    // Create the replacement container with the same mounts and env
-    const newCtr = await docker.createContainer({
-      name:  'script-manager',
-      Image: IMAGE_TAG,
-      Env:   selfInfo.Config.Env,
-      HostConfig: {
-        Binds:         selfInfo.HostConfig.Binds,
-        RestartPolicy: { Name: 'unless-stopped', MaximumRetryCount: 0 },
-        NetworkMode:   network,
-      },
-      NetworkingConfig: {
-        EndpointsConfig: { [network]: { Aliases: ['manager'] } },
-      },
-    });
+    // Step 3: Create + start the replacement container
+    let newCtr: Dockerode.Container;
+    try {
+      newCtr = await docker.createContainer({
+        name:  'script-manager',
+        Image: IMAGE_TAG,
+        Env:   selfInfo.Config.Env,
+        HostConfig: {
+          Binds:         selfInfo.HostConfig.Binds,
+          RestartPolicy: { Name: 'unless-stopped', MaximumRetryCount: 0 },
+          NetworkMode:   network,
+        },
+        NetworkingConfig: {
+          EndpointsConfig: { [network]: { Aliases: ['manager'] } },
+        },
+      });
+    } catch (createErr: any) {
+      // If create fails, rename ourselves back so compose can recover
+      appendLog(`Container create failed: ${createErr.message}. Rolling back rename…`);
+      try { await docker.getContainer('script-manager-old').rename({ name: 'script-manager' }); } catch (_) {}
+      throw createErr;
+    }
+
     await newCtr.start();
-    appendLog('New container started.');
+    appendLog('New container started. Stopping old…');
 
     updateState.status = 'done';
-    // Stop ourselves — the new container is already serving traffic.
-    // docker.getContainer().stop() sends SIGTERM; our process will exit naturally.
+    // Step 4: Stop + remove ourselves — new container is already serving traffic
     setTimeout(async () => {
       try {
         const old = docker.getContainer('script-manager-old');
         await old.stop({ t: 5 });
         await old.remove({ force: true });
-      } catch (_) { /* process dies here — that's expected */ }
+      } catch (_) { /* process dies during stop — expected */ }
     }, 800);
   } catch (err: any) {
     updateState.status = 'error';
