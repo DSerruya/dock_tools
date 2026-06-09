@@ -451,40 +451,118 @@ PYEOF
     fi
   fi  # end elif UI_UP
 
-  # ── GitHub connectivity test ──────────────────────────────────────────────────
-  section "Step 8 — GitHub Connectivity Test (optional)"
-  echo "  Tests that the manager can clone from a real public GitHub repository."
+  # ── GitHub PAT + connectivity test ───────────────────────────────────────────
+  section "Step 8 — GitHub PAT & Connectivity Test (optional)"
+  echo "  Tests:"
+  echo "  • GitHub PAT authentication (git clone with token)"
+  echo "  • Webhook delivery (signed POST to Dock Tools)"
+  echo "  • stdout logging pipeline (Ruby script with buffering fix)"
   echo ""
-  if [[ "$UI_UP" == "false" ]]; then
-    warn "Skipping GitHub test — web UI is not reachable."
-  elif confirm "Run GitHub connectivity test?" "n"; then
-    ask "Public GitHub repo URL [https://github.com/DSerruya/dock_tools.git]:"
-    read -r TEST_REPO
-    TEST_REPO="${TEST_REPO:-https://github.com/DSerruya/dock_tools.git}"
-    TEST_NAME="github-connectivity-test"
 
-    info "Adding GitHub test script..."
-    GH_RESP=$(curl -sf -X POST "${BASE_URL}/api/scripts" \
+  GH_PAT=""
+  if confirm "Enter a GitHub Personal Access Token (PAT) to test?" "n"; then
+    ask "GitHub PAT (ghp_... — press Enter to skip and use public clone only):"
+    read -rsp "" GH_PAT; echo ""
+    if [[ -n "$GH_PAT" ]]; then
+      # Validate PAT against GitHub API
+      info "Validating GitHub PAT..."
+      GH_USER=$(curl -sf -H "Authorization: token ${GH_PAT}" \
+        https://api.github.com/user 2>/dev/null | grep '"login"' | cut -d'"' -f4 || echo "")
+      if [[ -n "$GH_USER" ]]; then
+        success "GitHub PAT is valid — authenticated as: ${GH_USER}"
+      else
+        warn "GitHub PAT validation failed. Continuing with public clone test only."
+        GH_PAT=""
+      fi
+    fi
+  fi
+
+  TEST_REPO="https://github.com/DSerruya/dock_tools_test.git"
+  TEST_NAME="git-test"
+
+  # Build repo URL with PAT if provided
+  if [[ -n "$GH_PAT" ]]; then
+    TEST_REPO_AUTH="https://${GH_PAT}@github.com/DSerruya/dock_tools_test.git"
+  else
+    TEST_REPO_AUTH="$TEST_REPO"
+  fi
+
+  # ── Test 1: git clone ────────────────────────────────────────────────────────
+  info "Test 1 — Git clone: cloning ${TEST_REPO} ..."
+  CLONE_DIR="/tmp/dock-tools-git-test"
+  rm -rf "$CLONE_DIR"
+  if git clone --depth=1 --quiet "$TEST_REPO_AUTH" "$CLONE_DIR" 2>/dev/null; then
+    success "Git clone succeeded — GitHub connectivity is working"
+    rm -rf "$CLONE_DIR"
+  else
+    warn "Git clone failed. Check internet access and PAT scopes (needs 'repo' or 'contents:read')."
+  fi
+
+  # ── Test 2: webhook ──────────────────────────────────────────────────────────
+  if [[ "$UI_UP" == "true" ]]; then
+    info "Test 2 — Webhook: adding test script and sending signed webhook..."
+
+    # Add the test script via API
+    ADD_RESP=$(curl -sf -X POST "${BASE_URL}/api/scripts" \
       -u "${UI_USERNAME}:${UI_PASSWORD}" \
       -H "Content-Type: application/json" \
-      -d "{\"name\":\"${TEST_NAME}\",\"repoUrl\":\"${TEST_REPO}\",\"branch\":\"main\",\"language\":\"node\",\"entryPoint\":\"echo done\"}" \
-      2>&1 || echo "API_FAIL")
+      -d "{
+        \"name\":       \"${TEST_NAME}\",
+        \"repoUrl\":    \"${TEST_REPO_AUTH}\",
+        \"branch\":     \"main\",
+        \"language\":   \"ruby\",
+        \"entryPoint\": \"stdbuf -o0 ruby main.rb\",
+        \"persistent\": true
+      }" 2>&1 || echo "API_FAIL")
 
-    if echo "$GH_RESP" | grep -qi "API_FAIL\|error"; then
-      warn "GitHub test failed: $GH_RESP"
+    if echo "$ADD_RESP" | grep -qi "API_FAIL\|error"; then
+      warn "Could not add test script via API: ${ADD_RESP}"
     else
-      sleep 5
-      if [[ -d "${SCRIPTS_DATA_DIR}/${TEST_NAME}/repo" ]]; then
-        success "GitHub clone succeeded — repo is at: ${SCRIPTS_DATA_DIR}/${TEST_NAME}/repo"
+      success "Test script added"
+
+      # Start it so the repo gets cloned
+      curl -sf -X POST "${BASE_URL}/api/scripts/${TEST_NAME}/start" \
+        -u "${UI_USERNAME}:${UI_PASSWORD}" &>/dev/null || true
+      sleep 4
+
+      # Send a signed webhook POST (simulates a GitHub push event)
+      PAYLOAD='{"ref":"refs/heads/main","repository":{"full_name":"DSerruya/dock_tools_test"}}'
+      SIGNATURE=$(echo -n "$PAYLOAD" | openssl dgst -sha256 -hmac "$WEBHOOK_SECRET" 2>/dev/null | sed 's/.*= //')
+
+      WEBHOOK_RESP=$(curl -sf -X POST "${BASE_URL}/webhook/${TEST_NAME}" \
+        -H "Content-Type: application/json" \
+        -H "X-Hub-Signature-256: sha256=${SIGNATURE}" \
+        -H "X-GitHub-Event: push" \
+        -d "$PAYLOAD" 2>&1 || echo "WEBHOOK_FAIL")
+
+      if echo "$WEBHOOK_RESP" | grep -qi "WEBHOOK_FAIL\|error\|invalid"; then
+        warn "Webhook test failed: ${WEBHOOK_RESP}"
+        warn "Verify WEBHOOK_SECRET in .env matches what you set in GitHub."
       else
-        warn "Clone may still be in progress — check UI in a few seconds."
+        success "Webhook delivered and accepted — signature validation passed"
       fi
+
+      # Check logs for heartbeat output
+      sleep 5
+      LOGS=$(curl -sf "${BASE_URL}/api/scripts/${TEST_NAME}/logs" \
+        -u "${UI_USERNAME}:${UI_PASSWORD}" 2>/dev/null || echo "")
+      if echo "$LOGS" | grep -q "heartbeat\|pipeline OK\|Dock Tools"; then
+        success "Logs confirmed — stdout buffering fix is working (stdbuf -o0)"
+      else
+        warn "No log output yet — script may still be starting. Check the Logs tab in the UI."
+      fi
+
       # Clean up
+      curl -sf -X POST "${BASE_URL}/api/scripts/${TEST_NAME}/stop" \
+        -u "${UI_USERNAME}:${UI_PASSWORD}" &>/dev/null || true
+      sleep 2
       curl -sf -X DELETE "${BASE_URL}/api/scripts/${TEST_NAME}" \
         -u "${UI_USERNAME}:${UI_PASSWORD}" &>/dev/null || true
-      info "GitHub test script removed"
+      success "Test script cleaned up"
     fi
-  fi  # end elif UI_UP
+  else
+    warn "Skipping webhook test — web UI is not reachable at ${BASE_URL}."
+  fi
 
   # ── Auto-start on reboot ──────────────────────────────────────────────────────
   section "Step 9 — Auto-start on Reboot"
