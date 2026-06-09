@@ -69,39 +69,30 @@ async function runUpdate(): Promise<void> {
     await buildImage(path.join(tmpDir, 'manager'), commitSha);
     appendLog('Build complete. Recreating container with new image …');
 
-    // Recreate the container so the new image is actually used.
-    // process.exit(0) alone only restarts with the OLD image ID — Docker does
-    // not re-resolve the tag on restart. Strategy:
-    //   1. Clean up any leftover containers from a previous failed update
-    //   2. Rename ourselves → free up the name
-    //   3. Create + start new container under the original name
-    //   4. Stop + remove ourselves (process exits naturally here)
     const selfCtr  = docker.getContainer('script-manager');
     const selfInfo = await selfCtr.inspect();
     const selfId   = selfInfo.Id;
     const network  = Object.keys(selfInfo.NetworkSettings.Networks)[0] || 'script-network';
 
-    // Step 1: Remove any leftover containers from a previous partial update
+    // Clean up any leftover containers from a previous failed update
     for (const leftover of ['script-manager-old']) {
       try {
-        const c = docker.getContainer(leftover);
+        const c    = docker.getContainer(leftover);
         const info = await c.inspect();
-        // Only remove if it's not us (different container ID)
         if (info.Id !== selfId) {
           if (info.State.Running) await c.stop({ t: 3 });
           await c.remove({ force: true });
           appendLog(`Removed stale container: ${leftover}`);
         }
-      } catch (_) { /* container doesn't exist — fine */ }
+      } catch (_) { /* doesn't exist — fine */ }
     }
 
-    // Step 2: Rename ourselves to free the name
+    // Rename ourselves to free the container name
     await selfCtr.rename({ name: 'script-manager-old' });
     appendLog('Renamed old container.');
 
-    // Step 3: Create + start the replacement container
-    // Create with no network first, then connect explicitly so the 'manager'
-    // alias is guaranteed to be registered before nginx looks it up.
+    // Create replacement container using NetworkingConfig in the create call
+    // (more reliable than NetworkMode:'none' + separate connect)
     let newCtr: Dockerode.Container;
     try {
       newCtr = await docker.createContainer({
@@ -111,37 +102,52 @@ async function runUpdate(): Promise<void> {
         HostConfig: {
           Binds:         selfInfo.HostConfig.Binds,
           RestartPolicy: { Name: 'unless-stopped', MaximumRetryCount: 0 },
-          NetworkMode:   'none',   // connect explicitly below
+        },
+        NetworkingConfig: {
+          EndpointsConfig: {
+            [network]: { Aliases: ['manager', 'script-manager'] },
+          },
         },
       });
     } catch (createErr: any) {
-      // If create fails, rename ourselves back so compose can recover
-      appendLog(`Container create failed: ${createErr.message}. Rolling back…`);
+      appendLog(`Container create failed: ${createErr.message}. Rolling back rename…`);
       try { await docker.getContainer('script-manager-old').rename({ name: 'script-manager' }); } catch (_) {}
       throw createErr;
     }
 
-    // Connect to the network with the 'manager' alias BEFORE starting so
-    // Docker's embedded DNS is ready when nginx first tries to resolve it.
-    const networkObj = docker.getNetwork(network);
-    await networkObj.connect({
-      Container: newCtr.id,
-      EndpointConfig: { Aliases: ['manager', 'script-manager'] },
-    });
-    appendLog(`Connected to network '${network}' with alias 'manager'.`);
-
     await newCtr.start();
-    appendLog('New container started. Stopping old…');
+    appendLog('New container started. Running health check…');
 
-    updateState.status = 'done';
-    // Step 4: Stop + remove ourselves — new container is already serving traffic
-    setTimeout(async () => {
+    // Health check — wait up to 20s for the new container to stay running.
+    // If it crashes, roll back to the old container automatically.
+    let healthy = false;
+    for (let i = 0; i < 20; i++) {
+      await new Promise(r => setTimeout(r, 1000));
       try {
-        const old = docker.getContainer('script-manager-old');
-        await old.stop({ t: 5 });
-        await old.remove({ force: true });
-      } catch (_) { /* process dies during stop — expected */ }
-    }, 800);
+        const info = await docker.getContainer('script-manager').inspect();
+        if (info.State.Running && !info.State.Restarting) { healthy = true; break; }
+      } catch (_) { break; }
+    }
+
+    if (!healthy) {
+      appendLog('Health check failed — new container is not running. Rolling back…');
+      try { await docker.getContainer('script-manager').stop(); } catch (_) {}
+      try { await docker.getContainer('script-manager').remove({ force: true }); } catch (_) {}
+      try { await docker.getContainer('script-manager-old').rename({ name: 'script-manager' }); } catch (_) {}
+      throw new Error('New container failed health check. Rolled back to previous version — no downtime.');
+    }
+
+    appendLog('Health check passed. Shutting down old container…');
+    updateState.status = 'done';
+
+    // Update our own restart policy to 'no' so Docker does not restart us
+    // with the old image after we stop ourselves.
+    try { await selfCtr.update({ RestartPolicy: { Name: 'no', MaximumRetryCount: 0 } }); } catch (_) {}
+
+    setTimeout(async () => {
+      try { await docker.getContainer('script-manager-old').stop({ t: 3 }); } catch (_) {}
+      // Process dies here — that's expected
+    }, 500);
   } catch (err: any) {
     updateState.status = 'error';
     updateState.error  = err.message;
