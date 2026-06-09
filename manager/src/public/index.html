@@ -48,6 +48,12 @@
     .refresh-icon-btn:hover { color: var(--text); background: var(--border); }
 
     /* ── HowTo button ── */
+    /* ── Logs period filter ── */
+    .logs-period.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    #logs-custom-range { display: none; }
+    #logs-custom-range.visible { display: flex; }
+
+    /* ── HowTo button ── */
     .howto-btn {
       background: none; border: 1px solid var(--border); color: var(--muted);
       border-radius: 50%; width: 26px; height: 26px; font-size: 13px; font-weight: 700;
@@ -499,12 +505,30 @@
                   max-height:200px;overflow-y:auto;color:#a3e635;white-space:pre-wrap;word-break:break-all"></div>
     </div>
 
-    <div class="table-toolbar">
-      <div style="display:flex;gap:8px;align-items:center">
-        <label style="margin:0;text-transform:none;letter-spacing:0;color:var(--muted)">Filter script:</label>
-        <select id="logs-filter" onchange="loadLogs()" style="width:200px">
+    <div class="table-toolbar" style="flex-wrap:wrap;gap:10px">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <label style="margin:0;text-transform:none;letter-spacing:0;color:var(--muted)">Script:</label>
+        <select id="logs-filter" onchange="loadLogs()" style="width:180px">
           <option value="">All scripts</option>
         </select>
+        <span style="color:var(--border)">│</span>
+        <label style="margin:0;text-transform:none;letter-spacing:0;color:var(--muted)">Period:</label>
+        <div style="display:flex;gap:4px" id="logs-period-btns">
+          <button class="btn btn-ghost btn-sm logs-period active" data-period="24h"  onclick="setLogsPeriod(this)">24h</button>
+          <button class="btn btn-ghost btn-sm logs-period"        data-period="7d"   onclick="setLogsPeriod(this)">7d</button>
+          <button class="btn btn-ghost btn-sm logs-period"        data-period="30d"  onclick="setLogsPeriod(this)">30d</button>
+          <button class="btn btn-ghost btn-sm logs-period"        data-period="all"  onclick="setLogsPeriod(this)">All</button>
+          <button class="btn btn-ghost btn-sm logs-period"        data-period="custom" onclick="setLogsPeriod(this)">Custom…</button>
+        </div>
+        <div id="logs-custom-range" style="display:none;gap:6px;align-items:center;flex-wrap:wrap">
+          <input id="logs-from" type="datetime-local" onchange="loadLogs()"
+                 style="background:var(--bg);border:1px solid var(--border);color:var(--text);
+                        border-radius:6px;padding:3px 6px;font-size:12px" />
+          <span style="color:var(--muted);font-size:12px">to</span>
+          <input id="logs-until" type="datetime-local" onchange="loadLogs()"
+                 style="background:var(--bg);border:1px solid var(--border);color:var(--text);
+                        border-radius:6px;padding:3px 6px;font-size:12px" />
+        </div>
       </div>
       <span id="logs-count" style="font-size:12px;color:var(--muted)"></span>
     </div>

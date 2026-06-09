@@ -6,10 +6,21 @@ import * as logService from '../services/logService';
 const docker = new Dockerode({ socketPath: '/var/run/docker.sock' });
 const router = Router();
 
-// GET /api/logs?script=<name>
+// GET /api/logs?script=<name>&since=<iso>&until=<iso>
 router.get('/', (req, res) => {
-  const { script } = req.query;
-  res.json(logService.listRuns(script as string | undefined));
+  const { script, since, until } = req.query;
+  let runs = logService.listRuns(script as string | undefined);
+
+  if (since) {
+    const from = new Date(since as string).getTime();
+    if (!isNaN(from)) runs = runs.filter(r => new Date(r.startTime).getTime() >= from);
+  }
+  if (until) {
+    const to = new Date(until as string).getTime();
+    if (!isNaN(to))   runs = runs.filter(r => new Date(r.startTime).getTime() <= to);
+  }
+
+  res.json(runs);
 });
 
 // GET /api/logs/:runId/content  — full saved log for completed runs

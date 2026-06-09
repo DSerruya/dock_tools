@@ -795,6 +795,48 @@ function filterLogs(scriptName) {
   loadLogs();
 }
 
+// ── Logs date-period filter ───────────────────────────────────────────────────
+let _logsPeriod = '24h';   // default
+
+function setLogsPeriod(btn) {
+  document.querySelectorAll('.logs-period').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  _logsPeriod = btn.dataset.period;
+  const custom = document.getElementById('logs-custom-range');
+  if (_logsPeriod === 'custom') {
+    custom.classList.add('visible');
+    // Pre-fill custom inputs with current computed range
+    const { since, until } = _logsDateRange();
+    if (since) document.getElementById('logs-from').value  = _toLocalInput(new Date(since));
+    if (until) document.getElementById('logs-until').value = _toLocalInput(new Date(until));
+  } else {
+    custom.classList.remove('visible');
+    loadLogs();
+  }
+}
+
+function _toLocalInput(d) {
+  // Format Date as 'YYYY-MM-DDTHH:MM' for datetime-local input
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function _logsDateRange() {
+  if (_logsPeriod === 'all') return {};
+  if (_logsPeriod === 'custom') {
+    const from  = document.getElementById('logs-from').value;
+    const until = document.getElementById('logs-until').value;
+    return {
+      since: from  ? new Date(from).toISOString()  : undefined,
+      until: until ? new Date(until).toISOString() : undefined,
+    };
+  }
+  const now  = new Date();
+  const msMap = { '24h': 86400000, '7d': 604800000, '30d': 2592000000 };
+  const ms    = msMap[_logsPeriod] || 86400000;
+  return { since: new Date(now - ms).toISOString(), until: now.toISOString() };
+}
+
 async function loadLogs() {
   setLoading(true);
   try {
@@ -806,11 +848,17 @@ async function loadLogs() {
       scripts.map(s => `<option value="${escHtml(s.config.name)}"${s.config.name===cur?' selected':''}>${escHtml(s.config.name)}</option>`).join('');
     if (logsScriptFilter) { sel.value = logsScriptFilter; logsScriptFilter = ''; }
 
-    const filter = sel.value;
-    const url    = filter ? `/api/logs?script=${encodeURIComponent(filter)}` : '/api/logs';
-    const runs   = await api('GET', url);
+    const filter          = sel.value;
+    const { since, until } = _logsDateRange();
+    const params = new URLSearchParams();
+    if (filter) params.set('script', filter);
+    if (since)  params.set('since',  since);
+    if (until)  params.set('until',  until);
+    const url  = `/api/logs${params.toString() ? '?' + params.toString() : ''}`;
+    const runs = await api('GET', url);
 
-    document.getElementById('logs-count').textContent = `${runs.length} run${runs.length===1?'':'s'}`;
+    const periodLabel = { '24h':'last 24h', '7d':'last 7d', '30d':'last 30d', 'all':'all time', 'custom':'custom range' }[_logsPeriod] || '';
+    document.getElementById('logs-count').textContent = `${runs.length} run${runs.length===1?'':'s'} · ${periodLabel}`;
     renderRunsTable(runs);
     document.getElementById('refresh-label').textContent = `Updated ${new Date().toLocaleTimeString()}`;
 
