@@ -230,7 +230,10 @@ async function captureOnceLog(container: Dockerode.Container, runId: string): Pr
 // ── Public API ────────────────────────────────────────────────────────────────
 
 export async function start(config: ScriptConfig, runId: string): Promise<void> {
-  if (config.vpnEnabled) await startVpnSidecar(config.name);
+  if (config.vpnEnabled) {
+    await startVpnSidecar(config.name);
+    await prependVpnLogs(config.name, runId);
+  }
   await removeIfExists(config.name);
   const c = await createContainer(config, 'unless-stopped');
   await c.start();
@@ -246,7 +249,10 @@ export async function stop(name: string, vpnEnabled?: boolean): Promise<void> {
 }
 
 export async function restart(config: ScriptConfig, runId: string): Promise<void> {
-  if (config.vpnEnabled) await startVpnSidecar(config.name);
+  if (config.vpnEnabled) {
+    await startVpnSidecar(config.name);
+    await prependVpnLogs(config.name, runId);
+  }
   await removeIfExists(config.name);
   const c = await createContainer(config, 'unless-stopped');
   await c.start();
@@ -254,7 +260,10 @@ export async function restart(config: ScriptConfig, runId: string): Promise<void
 }
 
 export async function runOnce(config: ScriptConfig, runId: string): Promise<{ exitCode: number }> {
-  if (config.vpnEnabled) await startVpnSidecar(config.name);
+  if (config.vpnEnabled) {
+    await startVpnSidecar(config.name);
+    await prependVpnLogs(config.name, runId);
+  }
   await removeIfExists(config.name);
   const c = await createContainer(config, 'no');
   await c.start();
@@ -271,6 +280,12 @@ export async function runOnce(config: ScriptConfig, runId: string): Promise<{ ex
 export async function removeContainer(name: string, vpnEnabled?: boolean): Promise<void> {
   await removeIfExists(name);
   if (vpnEnabled) await stopVpnSidecar(name);
+}
+
+async function prependVpnLogs(name: string, runId: string): Promise<void> {
+  const logs = await getVpnLogs(name);
+  if (!logs) return;
+  logService.appendLog(runId, `=== VPN sidecar (script-vpn-${name}) ===\n${logs}\n=== script output ===\n`);
 }
 
 export async function getVpnLogs(name: string, tail = 100): Promise<string> {
