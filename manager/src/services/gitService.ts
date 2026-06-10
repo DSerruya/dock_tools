@@ -33,10 +33,11 @@ export async function pull(config: ScriptConfig): Promise<void> {
   const git      = simpleGit(repoPath);
 
   if (config.repoToken) {
-    // Update the remote URL in case the token changed
     await git.remote(['set-url', 'origin', authUrl(config)]);
   }
-  await git.pull('origin', config.branch);
+  await git.fetch('origin', config.branch);
+  await git.raw(['reset', '--hard', `origin/${config.branch}`]);
+  await git.raw(['clean', '-fd']);
 }
 
 export function deleteClone(name: string): void {
