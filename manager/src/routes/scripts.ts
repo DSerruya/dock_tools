@@ -96,6 +96,7 @@ router.post('/', requireRole('admin', 'agent'), async (req, res) => {
     repoToken:    body.repoToken    || undefined,
     schedule:     body.schedule,
     timezone:     body.timezone,
+    vpnEnabled:   body.vpnEnabled   || undefined,
     createdAt:    new Date().toISOString(),
   };
 
@@ -147,6 +148,7 @@ router.put('/:name', requireRole('admin', 'agent'), async (req, res) => {
     runMode:      (body.runMode      ?? config.runMode),
     schedule:     body.schedule      !== undefined ? (body.schedule      || undefined) : config.schedule,
     timezone:     body.timezone      !== undefined ? (body.timezone      || undefined) : config.timezone,
+    vpnEnabled:   body.vpnEnabled    !== undefined ?  body.vpnEnabled                  : config.vpnEnabled,
   };
 
   const changes = auditService.diffConfigs(config, updated);
