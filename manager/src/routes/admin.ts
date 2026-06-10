@@ -122,18 +122,29 @@ async function runUpdate(): Promise<void> {
     await newCtr.start();
     appendLog('New container started. Running health check…');
 
-    // Phase 1 — container running check (up to 20 s)
+    // Phase 1 — container running check (up to 30 s)
     let healthy = false;
-    for (let i = 0; i < 20; i++) {
+    let lastState = 'unknown';
+    for (let i = 0; i < 30; i++) {
       await new Promise(r => setTimeout(r, 1000));
       try {
         const info = await docker.getContainer('script-manager').inspect();
+        lastState = `Running=${info.State.Running} Restarting=${info.State.Restarting} Status=${info.State.Status}`;
         if (info.State.Running && !info.State.Restarting) { healthy = true; break; }
-      } catch (_) { break; }
+      } catch (e: any) { lastState = `inspect error: ${e.message}`; break; }
     }
 
     if (!healthy) {
-      appendLog('Health check failed — new container is not running. Rolling back…');
+      appendLog(`Health check failed (${lastState}). Capturing container logs…`);
+      try {
+        const logStream = await docker.getContainer('script-manager').logs({
+          stdout: true, stderr: true, tail: 50,
+        });
+        appendLog('--- container logs (last 50 lines) ---');
+        appendLog(logStream.toString().replace(/[\x00-\x08\x0b-\x1f]/g, ''));
+        appendLog('--- end container logs ---');
+      } catch (_) {}
+      appendLog('Rolling back…');
       try { await docker.getContainer('script-manager').stop(); } catch (_) {}
       try { await docker.getContainer('script-manager').remove({ force: true }); } catch (_) {}
       try { await docker.getContainer('script-manager-old').rename({ name: 'script-manager' }); } catch (_) {}
