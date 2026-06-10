@@ -141,7 +141,7 @@ function renderScripts(scripts) {
   el.innerHTML = `<div class="scripts-grid">${scripts.map(renderCard).join('')}${addCard}</div>`;
 }
 
-function renderCard({ config, status, nextRun }) {
+function renderCard({ config, status, nextRun, vpnStatus }) {
   const isScheduled  = config.runMode === 'scheduled';
   const dotClass     = isScheduled && status !== 'error' ? 'status-scheduled' : `status-${status}`;
   const statusText   = isScheduled ? (status === 'running' ? 'running' : 'scheduled') : status.replace('_',' ');
@@ -195,6 +195,7 @@ function renderCard({ config, status, nextRun }) {
           <span class="card-name">${escHtml(config.name)}</span>
           <span class="badge badge-${config.language}">${config.language}</span>
           ${isScheduled ? '<span class="badge" style="background:#1a1a3e;color:var(--accent)">cron</span>' : ''}
+          ${config.vpnEnabled ? `<span class="badge badge-vpn-${vpnStatus}" title="VPN ${vpnStatus}">⬤ VPN</span>` : ''}
         </div>
         <span class="status-label">${statusText}</span>
       </div>

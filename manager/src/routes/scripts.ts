@@ -59,10 +59,11 @@ function validateScriptFields(body: Partial<ScriptConfig>): string | null {
 router.get('/', async (_req, res) => {
   const configs = configService.loadAll();
   const results = await Promise.all(configs.map(async config => {
-    const cloned  = gitService.isCloned(config.name);
-    const status  = cloned ? await dockerService.getStatus(config.name) : 'not_cloned';
-    const nextRun = config.runMode === 'scheduled' ? cronService.getNextRun(config.name) : null;
-    return { config: sanitizeConfig(config), status, nextRun };
+    const cloned    = gitService.isCloned(config.name);
+    const status    = cloned ? await dockerService.getStatus(config.name) : 'not_cloned';
+    const nextRun   = config.runMode === 'scheduled' ? cronService.getNextRun(config.name) : null;
+    const vpnStatus = config.vpnEnabled ? await dockerService.getVpnStatus(config.name) : 'off';
+    return { config: sanitizeConfig(config), status, nextRun, vpnStatus };
   }));
   res.json(results);
 });
