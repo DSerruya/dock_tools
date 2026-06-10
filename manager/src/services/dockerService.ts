@@ -5,8 +5,9 @@ import * as logService from './logService';
 
 const docker = new Dockerode({ socketPath: '/var/run/docker.sock' });
 
-const DOCKER_NETWORK        = process.env.DOCKER_NETWORK        || 'bridge';
-const HOST_SCRIPTS_DATA_PATH = process.env.HOST_SCRIPTS_DATA_PATH || '/app/scripts-data';
+const DOCKER_NETWORK         = process.env.DOCKER_NETWORK         || 'bridge';
+const HOST_SCRIPTS_DATA_PATH = process.env.HOST_SCRIPTS_DATA_PATH  || '/app/scripts-data';
+const VPN_IMAGE              = 'alpine:3.19';
 
 const IMAGE_MAP: Record<string, string> = {
   python:     'python:3.12-slim',
@@ -30,8 +31,10 @@ const CMD_MAP: Record<string, (entry: string) => string[]> = {
   typescript: e => ['sh', '-c', e],
 };
 
-function containerName(name: string): string { return `script-${name}`; }
-function hostRepoPath(name: string): string  { return `${HOST_SCRIPTS_DATA_PATH}/${name}/repo`; }
+function containerName(name: string): string    { return `script-${name}`; }
+function vpnContainerName(name: string): string { return `script-vpn-${name}`; }
+function hostRepoPath(name: string): string     { return `${HOST_SCRIPTS_DATA_PATH}/${name}/repo`; }
+function hostVpnConfigPath(name: string): string { return `${HOST_SCRIPTS_DATA_PATH}/vpn/${name}.ovpn`; }
 
 async function getContainer(name: string): Promise<Dockerode.Container | null> {
   try {
@@ -75,6 +78,52 @@ function resolveCmd(config: ScriptConfig): string[] {
   return (CMD_MAP[config.language] || CMD_MAP.node)(config.entryPoint);
 }
 
+// ── VPN sidecar management ────────────────────────────────────────────────────
+
+async function startVpnSidecar(name: string): Promise<void> {
+  const existing = docker.getContainer(vpnContainerName(name));
+  try {
+    const info = await existing.inspect();
+    if (info.State.Running) await existing.stop({ t: 5 });
+    await existing.remove({ force: true });
+  } catch { /* didn't exist */ }
+
+  await pullImage(VPN_IMAGE);
+
+  const c = await docker.createContainer({
+    name: vpnContainerName(name),
+    Image: VPN_IMAGE,
+    Cmd: ['sh', '-c', 'apk add --no-cache openvpn 2>/dev/null; exec openvpn --config /vpn/config.ovpn'],
+    HostConfig: {
+      Binds:   [`${hostVpnConfigPath(name)}:/vpn/config.ovpn:ro`],
+      CapAdd:  ['NET_ADMIN'],
+      Devices: [{ PathOnHost: '/dev/net/tun', PathInContainer: '/dev/net/tun', CgroupPermissions: 'rwm' }],
+      NetworkMode: DOCKER_NETWORK,
+    },
+  });
+  await c.start();
+
+  // Poll logs until connected (up to 30 s)
+  for (let i = 0; i < 30; i++) {
+    await new Promise(r => setTimeout(r, 1000));
+    try {
+      const buf = await c.logs({ stdout: true, stderr: true, tail: 30 }) as unknown as Buffer;
+      if (demuxLogs(buf).includes('Initialization Sequence Completed')) return;
+    } catch { break; }
+  }
+}
+
+async function stopVpnSidecar(name: string): Promise<void> {
+  const c = docker.getContainer(vpnContainerName(name));
+  try {
+    const info = await c.inspect();
+    if (info.State.Running) await c.stop({ t: 5 });
+    await c.remove({ force: true });
+  } catch { /* already gone */ }
+}
+
+// ── Script container ──────────────────────────────────────────────────────────
+
 async function createContainer(config: ScriptConfig, restartPolicy: string): Promise<Dockerode.Container> {
   const image = IMAGE_MAP[config.language] || 'node:20-slim';
   const cmd   = resolveCmd(config);
@@ -108,7 +157,10 @@ async function createContainer(config: ScriptConfig, restartPolicy: string): Pro
     },
   };
 
-  if (config.port) {
+  if (config.vpnEnabled) {
+    // Share network namespace with VPN sidecar — port binding not available
+    opts.HostConfig!.NetworkMode = `container:${vpnContainerName(config.name)}`;
+  } else if (config.port) {
     opts.ExposedPorts = { [`${config.port}/tcp`]: {} };
     opts.HostConfig!.PortBindings = {
       [`${config.port}/tcp`]: [{ HostPort: String(config.port) }],
@@ -178,19 +230,23 @@ async function captureOnceLog(container: Dockerode.Container, runId: string): Pr
 // ── Public API ────────────────────────────────────────────────────────────────
 
 export async function start(config: ScriptConfig, runId: string): Promise<void> {
+  if (config.vpnEnabled) await startVpnSidecar(config.name);
   await removeIfExists(config.name);
   const c = await createContainer(config, 'unless-stopped');
   await c.start();
   startLogStream(c, runId, config.name);
 }
 
-export async function stop(name: string): Promise<void> {
+export async function stop(name: string, vpnEnabled?: boolean): Promise<void> {
   const c = await getContainer(name);
-  if (!c) return;
-  try { const i = await c.inspect(); if (i.State.Running) await c.stop({ t: 10 }); } catch {}
+  if (c) {
+    try { const i = await c.inspect(); if (i.State.Running) await c.stop({ t: 10 }); } catch {}
+  }
+  if (vpnEnabled) await stopVpnSidecar(name);
 }
 
 export async function restart(config: ScriptConfig, runId: string): Promise<void> {
+  if (config.vpnEnabled) await startVpnSidecar(config.name);
   await removeIfExists(config.name);
   const c = await createContainer(config, 'unless-stopped');
   await c.start();
@@ -198,6 +254,7 @@ export async function restart(config: ScriptConfig, runId: string): Promise<void
 }
 
 export async function runOnce(config: ScriptConfig, runId: string): Promise<{ exitCode: number }> {
+  if (config.vpnEnabled) await startVpnSidecar(config.name);
   await removeIfExists(config.name);
   const c = await createContainer(config, 'no');
   await c.start();
@@ -207,11 +264,13 @@ export async function runOnce(config: ScriptConfig, runId: string): Promise<{ ex
   await logDone;
 
   try { await c.remove({ force: true }); } catch {}
+  if (config.vpnEnabled) await stopVpnSidecar(config.name);
   return { exitCode: result.StatusCode };
 }
 
-export async function removeContainer(name: string): Promise<void> {
+export async function removeContainer(name: string, vpnEnabled?: boolean): Promise<void> {
   await removeIfExists(name);
+  if (vpnEnabled) await stopVpnSidecar(name);
 }
 
 export async function getLogs(name: string, tail = 200): Promise<string> {

@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import * as path from 'path';
+import * as fs   from 'fs';
 import { spawn } from 'child_process';
+import multer from 'multer';
 import * as configService from '../services/configService';
 import * as dockerService from '../services/dockerService';
 import * as gitService    from '../services/gitService';
@@ -17,7 +19,10 @@ import {
   validateEnvKeys,
 } from '../utils/validation';
 
-const router = Router();
+const router  = Router();
+const DATA_DIR = process.env.DATA_DIR || '/app/scripts-data';
+const VPN_DIR  = path.join(DATA_DIR, 'vpn');
+const vpnUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 512 * 1024 } });
 
 // Strip the repoToken from configs sent over the wire.
 // When a token IS configured, return '***' so the UI can show "(token configured)"
@@ -203,7 +208,7 @@ router.delete('/:name', requireRole('admin'), async (req, res) => {
     const activeRun = logService.findRunningRun(req.params.name);
     if (activeRun) logService.markRunFailed(activeRun.runId, 'Script deleted');
     cronService.unregister(req.params.name);
-    await dockerService.removeContainer(req.params.name);
+    await dockerService.removeContainer(req.params.name, config.vpnEnabled);
     configService.remove(req.params.name);
     auditService.record(user, 'script.deleted', req.params.name,
       auditService.configAsChanges(config).map(c => ({ field: c.field, oldValue: c.newValue, newValue: undefined }))
@@ -241,7 +246,7 @@ router.post('/:name/stop', requireRole('admin', 'agent'), async (req, res) => {
   const user = getUser(req);
 
   try {
-    await dockerService.stop(req.params.name);
+    await dockerService.stop(req.params.name, config.vpnEnabled);
     const activeRun = logService.findRunningRun(req.params.name);
     if (activeRun) logService.finishRun(activeRun.runId, 0);
     auditService.record(user, 'script.stopped', config.name, []);
@@ -381,6 +386,38 @@ router.post('/:name/update', requireRole('admin', 'agent'), async (req, res) => 
       res.json({ message: 'Update applied' });
     }
   } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/scripts/:name/vpn — upload .ovpn config file
+router.post('/:name/vpn', requireRole('admin', 'agent'), vpnUpload.single('ovpn'), (req, res) => {
+  const config = configService.get(req.params.name);
+  if (!config) return res.status(404).json({ error: 'Script not found' });
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+  if (!req.file.originalname.endsWith('.ovpn'))
+    return res.status(400).json({ error: 'File must be a .ovpn file' });
+
+  if (!fs.existsSync(VPN_DIR)) fs.mkdirSync(VPN_DIR, { recursive: true });
+  fs.writeFileSync(path.join(VPN_DIR, `${config.name}.ovpn`), req.file.buffer);
+  res.json({ message: 'VPN config uploaded' });
+});
+
+// DELETE /api/scripts/:name/vpn — remove .ovpn config file
+router.delete('/:name/vpn', requireRole('admin', 'agent'), (req, res) => {
+  const config = configService.get(req.params.name);
+  if (!config) return res.status(404).json({ error: 'Script not found' });
+
+  const filePath = path.join(VPN_DIR, `${config.name}.ovpn`);
+  if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  res.json({ message: 'VPN config removed' });
+});
+
+// GET /api/scripts/:name/vpn — check if .ovpn config exists
+router.get('/:name/vpn', requireRole('admin', 'agent'), (req, res) => {
+  const config = configService.get(req.params.name);
+  if (!config) return res.status(404).json({ error: 'Script not found' });
+
+  const filePath = path.join(VPN_DIR, `${config.name}.ovpn`);
+  res.json({ configured: fs.existsSync(filePath) });
 });
 
 // GET /api/scripts/:name/download — streams the cloned repo as a .tar.gz archive

@@ -7,6 +7,8 @@ let currentUser        = { username: 'anonymous', role: 'admin' };
 let editingUsername    = null;   // for user management modal
 let scriptModalMode    = 'add';  // 'add' | 'edit'
 let editingScriptName  = null;   // name of script being edited
+let _pendingVpnFile    = null;   // File object staged for upload on add-mode submit
+let _vpnConfigured     = false;  // whether current edit target has an .ovpn on server
 
 /* ── Cron helpers ────────────────────────────────────────────────────────── */
 const CRON_DESCS = [
@@ -1094,6 +1096,8 @@ function resetForm() {
   onBuildCmdChange();
   toggleRunMode();
   resetUpdateCheck();
+  _pendingVpnFile = null;
+  _setVpnUi(false, false, null);
 }
 
 function resetUpdateCheck() {
@@ -1107,6 +1111,76 @@ function resetUpdateCheck() {
   const checkBtn = document.getElementById('check-update-btn');
   checkBtn.disabled    = false;
   checkBtn.textContent = 'Check for Updates';
+}
+
+/* ── OpenVPN helpers ─────────────────────────────────────────────────────── */
+function _setVpnUi(enabled, configured, filename) {
+  document.getElementById('f-vpn-enabled').checked = enabled;
+  document.getElementById('vpn-toggle-label').textContent = enabled ? 'Enabled' : 'Disabled';
+  document.getElementById('vpn-config-area').style.display = enabled ? '' : 'none';
+  _vpnConfigured = configured;
+  const statusEl    = document.getElementById('vpn-file-status');
+  const removeBtn   = document.getElementById('vpn-remove-btn');
+  if (configured || filename) {
+    statusEl.textContent = filename ? filename : '.ovpn configured';
+    statusEl.style.color = 'var(--green)';
+    removeBtn.style.display = '';
+  } else {
+    statusEl.textContent = 'No .ovpn file uploaded';
+    statusEl.style.color = 'var(--muted)';
+    removeBtn.style.display = 'none';
+  }
+}
+
+function onVpnToggle() {
+  const enabled = document.getElementById('f-vpn-enabled').checked;
+  document.getElementById('vpn-toggle-label').textContent = enabled ? 'Enabled' : 'Disabled';
+  document.getElementById('vpn-config-area').style.display = enabled ? '' : 'none';
+}
+
+function onVpnFileSelected() {
+  const input = document.getElementById('vpn-file-input');
+  const file = input.files[0];
+  if (!file) return;
+  if (!file.name.endsWith('.ovpn')) {
+    toast('Only .ovpn files are accepted', 'error');
+    input.value = '';
+    return;
+  }
+
+  if (scriptModalMode === 'edit' && editingScriptName) {
+    // In edit mode: upload immediately
+    const fd = new FormData();
+    fd.append('ovpn', file);
+    fetch(`/api/scripts/${encodeURIComponent(editingScriptName)}/vpn`, {
+      method: 'POST', body: fd,
+    }).then(r => r.ok ? r.json() : r.json().then(e => Promise.reject(new Error(e.error || 'Upload failed'))))
+      .then(() => {
+        _setVpnUi(true, true, file.name);
+        toast('.ovpn uploaded', 'success');
+      })
+      .catch(e => toast(e.message, 'error'));
+  } else {
+    // In add mode: stage locally, upload after script created
+    _pendingVpnFile = file;
+    _setVpnUi(true, false, file.name);
+  }
+  input.value = '';
+}
+
+function removeVpnConfig() {
+  if (scriptModalMode === 'edit' && editingScriptName && _vpnConfigured) {
+    api('DELETE', `/api/scripts/${encodeURIComponent(editingScriptName)}/vpn`)
+      .then(() => {
+        _setVpnUi(true, false, null);
+        toast('.ovpn removed', 'info');
+      })
+      .catch(e => toast(e.message, 'error'));
+  } else {
+    // Just clear the staged file
+    _pendingVpnFile = null;
+    _setVpnUi(true, false, null);
+  }
 }
 
 function checkScriptUpdate() {
@@ -1200,6 +1274,15 @@ function populateScriptForm(config) {
   onBuildCmdChange();
   updateCronPreview();
   toggleRunMode();
+
+  // Load VPN state async
+  if (config.vpnEnabled) {
+    api('GET', `/api/scripts/${encodeURIComponent(config.name)}/vpn`)
+      .then(d => _setVpnUi(true, d.configured, d.configured ? '.ovpn configured' : null))
+      .catch(() => _setVpnUi(true, false, null));
+  } else {
+    _setVpnUi(false, false, null);
+  }
 }
 
 async function submitScriptModal() {
@@ -1297,7 +1380,8 @@ function collectScriptFormBody() {
     if (k) env[k] = v;
   });
 
-  const body = { language: lang, repo, branch, entryPoint: entry, runMode, env };
+  const vpnEnabled = document.getElementById('f-vpn-enabled').checked;
+  const body = { language: lang, repo, branch, entryPoint: entry, runMode, env, vpnEnabled };
   if (port)                   body.port         = parseInt(port);
   body.buildCommand = buildcmd;           // empty string clears it on edit
   if (token)                  body.repoToken    = token;
@@ -1315,6 +1399,12 @@ async function submitAdd() {
 
   try {
     await api('POST', '/api/scripts', { name, ...body });
+    if (_pendingVpnFile) {
+      const fd = new FormData();
+      fd.append('ovpn', _pendingVpnFile);
+      await fetch(`/api/scripts/${encodeURIComponent(name)}/vpn`, { method: 'POST', body: fd });
+      _pendingVpnFile = null;
+    }
     toast(`"${name}" added — cloning in background…`, 'success');
     closeAddModal();
     setTimeout(loadScripts, 2000);

@@ -110,6 +110,12 @@
     .btn-danger:hover { background: #991b1b; }
     .btn-success { background: #14532d; color: #86efac; }
     .btn-success:hover { background: #166534; }
+    .toggle-switch { position:relative;display:inline-block;width:34px;height:18px;flex-shrink:0 }
+    .toggle-switch input { opacity:0;width:0;height:0 }
+    .toggle-slider { position:absolute;cursor:pointer;inset:0;background:var(--border);border-radius:18px;transition:.2s }
+    .toggle-slider:before { content:'';position:absolute;height:12px;width:12px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.2s }
+    .toggle-switch input:checked + .toggle-slider { background:var(--accent) }
+    .toggle-switch input:checked + .toggle-slider:before { transform:translateX(16px) }
     .btn-sm      { padding: 4px 10px; font-size: 12px; }
     .btn-icon    { padding: 5px 8px; }
 
@@ -651,6 +657,29 @@
             <option value="Asia/Kolkata">Asia/Kolkata</option>
             <option value="Australia/Sydney">Australia/Sydney</option>
           </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+          <label style="margin-bottom:0">OpenVPN</label>
+          <label class="toggle-switch" title="Route all script traffic through OpenVPN">
+            <input type="checkbox" id="f-vpn-enabled" onchange="onVpnToggle()" />
+            <span class="toggle-slider"></span>
+          </label>
+          <span style="font-size:11px;color:var(--muted)" id="vpn-toggle-label">Disabled</span>
+        </div>
+        <div id="vpn-config-area" style="display:none;margin-top:8px;padding:10px 12px;background:var(--surface2);border-radius:6px;border:1px solid var(--border)">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <span id="vpn-file-status" style="font-size:12px;color:var(--muted)">No .ovpn file uploaded</span>
+            <label class="btn btn-ghost btn-sm" style="cursor:pointer;margin:0">
+              Upload .ovpn
+              <input type="file" id="vpn-file-input" accept=".ovpn" style="display:none" onchange="onVpnFileSelected()" />
+            </label>
+            <button class="btn btn-ghost btn-sm" id="vpn-remove-btn" style="display:none;color:var(--red)" onclick="removeVpnConfig()">Remove</button>
+          </div>
+          <div style="font-size:11px;color:var(--muted);margin-top:6px">
+            All script traffic will be routed through the VPN. Port forwarding is not available in VPN mode.
+          </div>
         </div>
       </div>
       <div class="form-group">

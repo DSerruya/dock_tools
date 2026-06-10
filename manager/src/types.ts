@@ -19,6 +19,7 @@ export interface ScriptConfig {
   createdAt: string;
   lastSync?: string;
   lastRun?: string;
+  vpnEnabled?: boolean;
 }
 
 export interface ScriptStatus {
