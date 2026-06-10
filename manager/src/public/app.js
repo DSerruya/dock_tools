@@ -559,6 +559,25 @@ async function loadSystemVersion() {
   } catch {
     document.getElementById('sys-version').textContent = 'version unknown';
   }
+  _loadLastUpdateLog();
+}
+
+async function _loadLastUpdateLog() {
+  try {
+    const s = await api('GET', '/api/admin/update/status');
+    if (!s.log) return;
+    document.getElementById('sys-last-log').textContent = s.log;
+    document.getElementById('sys-last-log-wrap').style.display = '';
+  } catch { /* ignore */ }
+}
+
+function toggleLastUpdateLog() {
+  const box    = document.getElementById('sys-last-log');
+  const toggle = document.getElementById('sys-last-log-toggle');
+  const shown  = box.style.display !== 'none';
+  box.style.display    = shown ? 'none' : '';
+  toggle.textContent   = shown ? '▾ show' : '▴ hide';
+  if (!shown) box.scrollTop = box.scrollHeight;
 }
 
 async function checkForUpdates() {
@@ -622,6 +641,12 @@ function _pollUpdateStatus() {
       const badge = document.getElementById('sys-update-badge');
       log.textContent = s.log || '';
       log.scrollTop   = log.scrollHeight;
+      // Keep last-log block in sync
+      const lastLog = document.getElementById('sys-last-log');
+      if (s.log) {
+        lastLog.textContent = s.log;
+        document.getElementById('sys-last-log-wrap').style.display = '';
+      }
       // Keep Logs tab card in sync while update is running
       _refreshSysLogCard();
 

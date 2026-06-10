@@ -430,6 +430,17 @@
            style="display:none;margin-top:12px;font-family:'Courier New',monospace;font-size:11px;
                   background:#0a0c12;border:1px solid var(--border);border-radius:6px;
                   padding:10px;max-height:220px;overflow-y:auto;color:#a3e635;white-space:pre-wrap;word-break:break-all"></div>
+      <div id="sys-last-log-wrap" style="display:none;margin-top:14px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;cursor:pointer"
+             onclick="toggleLastUpdateLog()">
+          <span style="font-size:12px;font-weight:600;color:var(--muted)">Last update log</span>
+          <span id="sys-last-log-toggle" style="font-size:11px;color:var(--muted)">▾ show</span>
+        </div>
+        <div id="sys-last-log"
+             style="display:none;font-family:'Courier New',monospace;font-size:11px;
+                    background:#0a0c12;border:1px solid var(--border);border-radius:6px;
+                    padding:10px;max-height:300px;overflow-y:auto;color:#94a3b8;white-space:pre-wrap;word-break:break-all"></div>
+      </div>
     </div>
 
     <div class="table-toolbar">
