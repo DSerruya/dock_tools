@@ -122,8 +122,7 @@ async function runUpdate(): Promise<void> {
     await newCtr.start();
     appendLog('New container started. Running health check…');
 
-    // Health check — wait up to 20s for the new container to stay running.
-    // If it crashes, roll back to the old container automatically.
+    // Phase 1 — container running check (up to 20 s)
     let healthy = false;
     for (let i = 0; i < 20; i++) {
       await new Promise(r => setTimeout(r, 1000));
@@ -141,7 +140,38 @@ async function runUpdate(): Promise<void> {
       throw new Error('New container failed health check. Rolled back to previous version — no downtime.');
     }
 
-    appendLog('Health check passed. Shutting down old container…');
+    appendLog('Container running. Waiting for Express to be ready…');
+
+    // Phase 2 — HTTP readiness check: poll /healthz until Express responds (up to 30 s).
+    // "manager" resolves to the NEW container once selfCtr was renamed to script-manager-old.
+    let httpReady = false;
+    for (let i = 0; i < 30; i++) {
+      await new Promise(r => setTimeout(r, 1000));
+      try {
+        const r = await fetch('http://manager:3000/healthz');
+        if (r.ok) { httpReady = true; break; }
+      } catch (_) {}
+    }
+    appendLog(httpReady ? 'Express is ready.' : 'Warning: Express did not respond in time — proceeding anyway.');
+
+    // Reload nginx BEFORE stopping the old container so it picks up the new
+    // container IP without any gap. Without this, nginx keeps the old IP cached
+    // from its upstream block and returns 502 until the next nginx restart.
+    appendLog('Reloading nginx…');
+    try {
+      const nginxExec = await docker.getContainer('script-nginx').exec({
+        Cmd: ['nginx', '-s', 'reload'],
+        AttachStdout: true,
+        AttachStderr: true,
+      });
+      const nStream = await nginxExec.start({ hijack: false, stdin: false } as any);
+      await new Promise<void>(r => { nStream.resume(); nStream.on('end', r); nStream.on('error', () => r()); });
+      appendLog('nginx reloaded.');
+    } catch (e: any) {
+      appendLog(`nginx reload skipped: ${e.message}`);
+    }
+
+    appendLog('Shutting down old container…');
     updateState.status = 'done';
 
     // Update our own restart policy to 'no' so Docker does not restart us
