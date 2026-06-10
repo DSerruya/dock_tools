@@ -1457,6 +1457,23 @@ refreshInterval = setInterval(() => {
   else if (currentTab === 'admin') loadUsers();
 }, 10000);
 
+// ── Theme toggle ─────────────────────────────────────────────────────────────
+function toggleTheme() {
+  const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
+  const next = isDark ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  document.getElementById('theme-toggle-btn').textContent = next === 'light' ? '🌙' : '☀';
+  localStorage.setItem('theme', next);
+}
+(function initTheme() {
+  const saved = localStorage.getItem('theme') || 'dark';
+  document.documentElement.setAttribute('data-theme', saved);
+  document.addEventListener('DOMContentLoaded', () => {
+    const btn = document.getElementById('theme-toggle-btn');
+    if (btn) btn.textContent = saved === 'light' ? '🌙' : '☀';
+  });
+})();
+
 // ── HowTo modal ──────────────────────────────────────────────────────────────
 function openHowTo()  { document.getElementById('howto-modal').classList.remove('hidden'); }
 function closeHowTo() { document.getElementById('howto-modal').classList.add('hidden'); }
