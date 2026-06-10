@@ -207,11 +207,13 @@ async function runUpdate(): Promise<void> {
 
 // GET /api/admin/version
 router.get('/version', (_req, res) => {
-  res.json({
-    commit:    process.env.GIT_COMMIT || 'dev',
-    buildTime: process.env.BUILD_TIME || null,
-    repoSlug,
-  });
+  // File-based values are written into the image at build time and are immune
+  // to env copying during container recreation. Fall back to env for dev.
+  let commit    = 'dev';
+  let buildTime: string | null = null;
+  try { commit    = fs.readFileSync('/app/COMMIT_SHA', 'utf8').trim() || 'dev'; } catch { commit    = process.env.GIT_COMMIT || 'dev'; }
+  try { buildTime = fs.readFileSync('/app/BUILD_TIME_FILE', 'utf8').trim() || null; } catch { buildTime = process.env.BUILD_TIME || null; }
+  res.json({ commit, buildTime, repoSlug });
 });
 
 // GET /api/admin/update/latest-commit — proxies GitHub API server-side

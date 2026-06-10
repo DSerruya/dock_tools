@@ -17,7 +17,9 @@ COPY tsconfig.json ./
 COPY src/ ./src/
 RUN npm run build \
   && cp -r src/public dist/public \
-  && npm prune --omit=dev
+  && npm prune --omit=dev \
+  && echo "$GIT_COMMIT" > /app/COMMIT_SHA \
+  && echo "$BUILD_TIME" > /app/BUILD_TIME_FILE
 
 EXPOSE 3000
 CMD ["node", "dist/index.js"]
