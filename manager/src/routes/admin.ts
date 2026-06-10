@@ -99,10 +99,14 @@ async function runUpdate(): Promise<void> {
     // (more reliable than NetworkMode:'none' + separate connect)
     let newCtr: Dockerode.Container;
     try {
+      // Strip image-baked vars so the new image's GIT_COMMIT/BUILD_TIME are used
+      const inheritedEnv = (selfInfo.Config.Env || []).filter(
+        (e: string) => !e.startsWith('GIT_COMMIT=') && !e.startsWith('BUILD_TIME='),
+      );
       newCtr = await docker.createContainer({
         name:  'script-manager',
         Image: IMAGE_TAG,
-        Env:   selfInfo.Config.Env,
+        Env:   inheritedEnv,
         HostConfig: {
           Binds:         selfInfo.HostConfig.Binds,
           RestartPolicy: { Name: 'unless-stopped', MaximumRetryCount: 0 },
