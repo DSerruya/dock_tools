@@ -1075,7 +1075,10 @@ function resetUpdateCheck() {
   document.getElementById('update-check-area').style.display = 'none';
   document.getElementById('update-status-text').textContent  = '';
   document.getElementById('update-status-text').style.color  = 'var(--muted)';
-  document.getElementById('install-update-btn').style.display = 'none';
+  const installBtn = document.getElementById('install-update-btn');
+  installBtn.style.display = 'none';
+  installBtn.textContent   = 'Install Update';
+  installBtn.disabled      = false;
   const checkBtn = document.getElementById('check-update-btn');
   checkBtn.disabled    = false;
   checkBtn.textContent = 'Check for Updates';
@@ -1095,8 +1098,10 @@ function checkScriptUpdate() {
     .then(data => {
       if (data.hasUpdate) {
         const count = data.behind === 1 ? '1 new commit' : `${data.behind} new commits`;
-        statusEl.textContent = data.latestMessage ? `${count}: ${data.latestMessage}` : count;
-        statusEl.style.color = 'var(--yellow)';
+        statusEl.textContent   = data.latestMessage ? `${count}: ${data.latestMessage}` : count;
+        statusEl.style.color   = 'var(--yellow)';
+        installBtn.textContent = 'Install Update';
+        installBtn.disabled    = false;
         installBtn.style.display = '';
       } else {
         statusEl.textContent = 'Already up to date';
