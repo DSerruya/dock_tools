@@ -108,6 +108,8 @@
     .btn-ghost:hover { color: var(--text); border-color: var(--muted); }
     .btn-danger  { background: #7f1d1d; color: #fca5a5; }
     .btn-danger:hover { background: #991b1b; }
+    .btn-success { background: #14532d; color: #86efac; }
+    .btn-success:hover { background: #166534; }
     .btn-sm      { padding: 4px 10px; font-size: 12px; }
     .btn-icon    { padding: 5px 8px; }
 
@@ -657,6 +659,11 @@
       </div>
     </div>
     <div class="modal-footer">
+      <div id="update-check-area" style="display:none;align-items:center;gap:8px;margin-right:auto">
+        <button class="btn btn-ghost btn-sm" id="check-update-btn" onclick="checkScriptUpdate()">Check for Updates</button>
+        <span id="update-status-text" style="font-size:12px;color:var(--muted)"></span>
+        <button class="btn btn-success btn-sm" id="install-update-btn" style="display:none" onclick="applyScriptUpdate()">Install Update</button>
+      </div>
       <button class="btn btn-ghost" onclick="closeAddModal()">Cancel</button>
       <button class="btn btn-primary" id="script-modal-submit" onclick="submitScriptModal()">Add Script</button>
     </div>

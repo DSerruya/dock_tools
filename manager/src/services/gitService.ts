@@ -52,3 +52,33 @@ export async function cloneOrPull(config: ScriptConfig): Promise<string> {
   }
   return getLocalPath(config.name);
 }
+
+export async function checkForUpdates(config: ScriptConfig): Promise<{
+  hasUpdate: boolean;
+  behind: number;
+  latestCommit?: string;
+  latestMessage?: string;
+}> {
+  if (!isCloned(config.name)) return { hasUpdate: false, behind: 0 };
+
+  const repoPath = getLocalPath(config.name);
+  const git = simpleGit(repoPath);
+
+  if (config.repoToken) {
+    await git.remote(['set-url', 'origin', authUrl(config)]);
+  }
+
+  await git.fetch('origin', config.branch);
+
+  const countRaw = await git.raw(['rev-list', '--count', `HEAD..origin/${config.branch}`]);
+  const behind = parseInt(countRaw.trim()) || 0;
+
+  if (behind === 0) return { hasUpdate: false, behind: 0 };
+
+  const logRaw = await git.raw(['log', '-1', '--format=%H|%s', `origin/${config.branch}`]);
+  const pipeIdx = logRaw.trim().indexOf('|');
+  const hash = pipeIdx > 0 ? logRaw.trim().slice(0, pipeIdx) : logRaw.trim().slice(0, 40);
+  const msg  = pipeIdx > 0 ? logRaw.trim().slice(pipeIdx + 1) : '';
+
+  return { hasUpdate: true, behind, latestCommit: hash.slice(0, 7), latestMessage: msg };
+}

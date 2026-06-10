@@ -346,6 +346,43 @@ router.delete('/:name/schedule', requireRole('admin', 'agent'), (req, res) => {
   res.json({ message: 'Schedule removed — switched to persistent mode' });
 });
 
+router.get('/:name/check-update', requireRole('admin', 'agent'), async (req, res) => {
+  const config = configService.get(req.params.name);
+  if (!config) return res.status(404).json({ error: 'Script not found' });
+  if (!gitService.isCloned(config.name))
+    return res.status(400).json({ error: 'Repository not cloned yet. Start the script first.' });
+  try {
+    const result = await gitService.checkForUpdates(config);
+    res.json(result);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/:name/update', requireRole('admin', 'agent'), async (req, res) => {
+  const config = configService.get(req.params.name);
+  if (!config) return res.status(404).json({ error: 'Script not found' });
+  if (!gitService.isCloned(config.name))
+    return res.status(400).json({ error: 'Repository not cloned yet. Start the script first.' });
+  const user = getUser(req);
+
+  try {
+    await gitService.pull(config);
+    // env is stored in scripts.json, not in the repo — preserved automatically
+    const updated = { ...config, lastSync: new Date().toISOString() };
+    configService.save(updated);
+    auditService.record(user, 'script.updated', config.name, []);
+
+    if (config.runMode === 'persistent') {
+      const activeRun = logService.findRunningRun(config.name);
+      if (activeRun) logService.markRunFailed(activeRun.runId, 'Script updated');
+      const runId = logService.createRun(config.name, config.language, config.runMode);
+      await dockerService.restart(updated, runId);
+      res.json({ message: 'Update applied and script restarted' });
+    } else {
+      res.json({ message: 'Update applied' });
+    }
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
 // GET /api/scripts/:name/download — streams the cloned repo as a .tar.gz archive
 router.get('/:name/download', requireRole('admin', 'agent'), (req, res) => {
   const config = configService.get(req.params.name);

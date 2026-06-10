@@ -1042,11 +1042,13 @@ function openEditModal(config) {
   document.getElementById('script-modal-submit').textContent = 'Save Changes';
   document.getElementById('f-name').disabled   = true;
   document.getElementById('f-name-hint').style.display = '';
+  document.getElementById('update-check-area').style.display = 'flex';
   document.getElementById('add-modal').classList.remove('hidden');
 }
 
 function closeAddModal() {
   document.getElementById('add-modal').classList.add('hidden');
+  resetUpdateCheck();
   scriptModalMode   = 'add';
   editingScriptName = null;
 }
@@ -1066,6 +1068,78 @@ function resetForm() {
   document.getElementById('f-token').placeholder = 'ghp_xxxxxxxxxxxxxxxxxxxx';
   onBuildCmdChange();
   toggleRunMode();
+  resetUpdateCheck();
+}
+
+function resetUpdateCheck() {
+  document.getElementById('update-check-area').style.display = 'none';
+  document.getElementById('update-status-text').textContent  = '';
+  document.getElementById('update-status-text').style.color  = 'var(--muted)';
+  document.getElementById('install-update-btn').style.display = 'none';
+  const checkBtn = document.getElementById('check-update-btn');
+  checkBtn.disabled    = false;
+  checkBtn.textContent = 'Check for Updates';
+}
+
+function checkScriptUpdate() {
+  const checkBtn  = document.getElementById('check-update-btn');
+  const statusEl  = document.getElementById('update-status-text');
+  const installBtn = document.getElementById('install-update-btn');
+
+  checkBtn.disabled    = true;
+  checkBtn.textContent = 'Checking…';
+  statusEl.textContent = '';
+  installBtn.style.display = 'none';
+
+  api('GET', `/api/scripts/${encodeURIComponent(editingScriptName)}/check-update`)
+    .then(data => {
+      if (data.hasUpdate) {
+        const count = data.behind === 1 ? '1 new commit' : `${data.behind} new commits`;
+        statusEl.textContent = data.latestMessage ? `${count}: ${data.latestMessage}` : count;
+        statusEl.style.color = 'var(--yellow)';
+        installBtn.style.display = '';
+      } else {
+        statusEl.textContent = 'Already up to date';
+        statusEl.style.color = 'var(--green)';
+      }
+      checkBtn.disabled    = false;
+      checkBtn.textContent = 'Check Again';
+    })
+    .catch(err => {
+      statusEl.textContent = err.message || 'Check failed';
+      statusEl.style.color = '#f87171';
+      checkBtn.disabled    = false;
+      checkBtn.textContent = 'Check for Updates';
+    });
+}
+
+async function applyScriptUpdate() {
+  const checkBtn   = document.getElementById('check-update-btn');
+  const statusEl   = document.getElementById('update-status-text');
+  const installBtn = document.getElementById('install-update-btn');
+
+  installBtn.disabled    = true;
+  installBtn.textContent = 'Installing…';
+  checkBtn.disabled      = true;
+  statusEl.textContent   = 'Pulling latest code…';
+  statusEl.style.color   = 'var(--muted)';
+
+  try {
+    const result = await api('POST', `/api/scripts/${encodeURIComponent(editingScriptName)}/update`);
+    statusEl.textContent     = result.message || 'Update applied';
+    statusEl.style.color     = 'var(--green)';
+    installBtn.style.display = 'none';
+    checkBtn.disabled        = false;
+    checkBtn.textContent     = 'Check Again';
+    toast(result.message || 'Update applied', 'success');
+    setTimeout(loadScripts, 1500);
+  } catch (err) {
+    statusEl.textContent   = err.message || 'Update failed';
+    statusEl.style.color   = '#f87171';
+    installBtn.disabled    = false;
+    installBtn.textContent = 'Install Update';
+    checkBtn.disabled      = false;
+  }
 }
 
 function populateScriptForm(config) {
