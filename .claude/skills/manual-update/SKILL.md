@@ -16,7 +16,7 @@ git pull
 
 # 2. Rebuild the image with version info
 docker build \
-  --build-arg GIT_COMMIT=$(git rev-parse --short HEAD) \
+  --build-arg GIT_COMMIT=$(git rev-parse HEAD) \
   --build-arg BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ") \
   -t dock-tools-manager:latest ./manager
 

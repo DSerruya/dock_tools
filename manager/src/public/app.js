@@ -571,7 +571,7 @@ async function checkForUpdates() {
   try {
     const { sha: latest } = await api('GET', '/api/admin/update/latest-commit');
 
-    if (_sysCommit === 'dev' || _sysCommit === latest) {
+    if (_sysCommit === 'dev' || latest.startsWith(_sysCommit) || _sysCommit.startsWith(latest.slice(0, 7))) {
       badge.textContent = '✓ Up to date';
       badge.style.color = 'var(--green)';
       document.getElementById('sys-update-btn').style.display = 'none';
