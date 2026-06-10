@@ -273,6 +273,14 @@ export async function removeContainer(name: string, vpnEnabled?: boolean): Promi
   if (vpnEnabled) await stopVpnSidecar(name);
 }
 
+export async function getVpnLogs(name: string, tail = 100): Promise<string> {
+  try {
+    const c   = docker.getContainer(vpnContainerName(name));
+    const buf = await c.logs({ stdout: true, stderr: true, tail, timestamps: true }) as unknown as Buffer;
+    return demuxLogs(buf);
+  } catch { return ''; }
+}
+
 export async function getVpnStatus(name: string): Promise<'connected' | 'connecting' | 'off'> {
   try {
     const c    = docker.getContainer(vpnContainerName(name));

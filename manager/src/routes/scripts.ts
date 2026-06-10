@@ -304,8 +304,15 @@ router.get('/:name/logs', async (req, res) => {
   const config = configService.get(req.params.name);
   if (!config) return res.status(404).json({ error: 'Script not found' });
   try {
-    const tail = parseInt(req.query.tail as string) || 200;
-    const logs = await dockerService.getLogs(req.params.name, tail);
+    const tail       = parseInt(req.query.tail as string) || 200;
+    const scriptLogs = await dockerService.getLogs(req.params.name, tail);
+    let logs = scriptLogs;
+    if (config.vpnEnabled) {
+      const vpnLogs = await dockerService.getVpnLogs(req.params.name);
+      if (vpnLogs) {
+        logs = `=== VPN sidecar (script-vpn-${req.params.name}) ===\n${vpnLogs}\n=== script logs ===\n${scriptLogs}`;
+      }
+    }
     res.json({ logs });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
