@@ -324,6 +324,45 @@ pdf.table(
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
+pdf.phase_title("Script Management - Checking for Updates")
+
+pdf.body(
+    "Each script has a built-in update check that fetches the latest commits from its "
+    "GitHub repository and lets you install the update with a single click - without "
+    "touching the script's environment variables."
+)
+
+pdf.section_heading("How to use")
+steps = [
+    "1. Open the Edit modal for any script (click the pencil icon on the script card).",
+    "2. Click 'Check for Updates' in the bottom-left of the modal.",
+    "3. Dock Tools fetches from the remote and reports how many commits are behind.",
+    "4. If updates exist, the latest commit message is shown and an 'Install Update' button appears.",
+    "5. Click 'Install Update' to pull the latest code.",
+    "6. Persistent scripts restart automatically; scheduled scripts pick up the new code on next run.",
+]
+for s in steps:
+    pdf.cell(5)
+    pdf.multi_cell(0, 5, s, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+
+pdf.note(
+    "Environment variables are stored in Dock Tools' own config (scripts.json), not inside "
+    "the cloned repository. They are always preserved when an update is applied - you never "
+    "need to re-enter them."
+)
+
+pdf.table(
+    ["State", "What you see"],
+    [
+        ["Up to date",       "Green text: 'Already up to date'"],
+        ["Updates available", "Yellow text: '<N> new commits: <latest message>' + Install Update button"],
+        ["After install",    "Green text: 'Update applied and script restarted' (persistent) or 'Update applied' (scheduled)"],
+        ["Not yet cloned",   "Error: 'Repository not cloned yet. Start the script first.'"],
+    ],
+    [55, 127],
+)
+
+# ─────────────────────────────────────────────────────────────────────────────
 pdf.phase_title("Common Hyper-V / Windows Gotchas")
 
 pdf.table(
