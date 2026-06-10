@@ -363,6 +363,57 @@ pdf.table(
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
+pdf.phase_title("Claude Code Automations")
+
+pdf.body(
+    "Dock Tools ships with built-in Claude Code automations that make it easier to maintain "
+    "the project when working inside the Claude Code CLI."
+)
+
+pdf.section_heading("Skills (invoke with /skill-name in Claude Code)")
+
+for name, desc in [
+    ("update-pdf",     "Regenerates both PDF docs, commits, and pushes. Prompts for a short commit note."),
+    ("manual-update",  "Prints the 5-step manual update with correct --build-arg flags for GIT_COMMIT and BUILD_TIME."),
+]:
+    pdf.set_font("Helvetica", "B", 9)
+    pdf.cell(5)
+    pdf.cell(38, 5, name)
+    pdf.set_font("Helvetica", "", 9)
+    pdf.multi_cell(0, 5, desc, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+pdf.ln(2)
+
+pdf.section_heading("Subagents (.claude/agents/)")
+
+pdf.set_font("Helvetica", "B", 9)
+pdf.cell(5)
+pdf.cell(55, 5, "docker-networking-reviewer")
+pdf.set_font("Helvetica", "", 9)
+pdf.multi_cell(0, 5,
+    "Specialist reviewer for Docker networking and container lifecycle code. "
+    "Flags NetworkMode conflicts, nginx DNS caching issues (upstream blocks resolve at "
+    "startup), rollback safety gaps, and container lifecycle race conditions.",
+    new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+pdf.ln(2)
+
+pdf.section_heading("Hooks (.claude/settings.local.json)")
+
+pdf.set_font("Helvetica", "B", 9)
+pdf.cell(5)
+pdf.cell(45, 5, "TypeScript type-check")
+pdf.set_font("Helvetica", "", 9)
+pdf.multi_cell(0, 5,
+    "PostToolUse hook on Edit|Write. Runs npx tsc --noEmit in manager/ after every .ts "
+    "file edit. Type errors surface as hook output; a clean check is silent.",
+    new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+pdf.ln(2)
+
+pdf.note(
+    "settings.local.json is gitignored - each developer installs the TypeScript hook "
+    "locally. Skills and subagent configs in .claude/ are committed and shared."
+)
+
+# ─────────────────────────────────────────────────────────────────────────────
 pdf.phase_title("Common Hyper-V / Windows Gotchas")
 
 pdf.table(
