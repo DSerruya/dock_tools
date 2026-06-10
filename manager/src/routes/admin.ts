@@ -72,7 +72,11 @@ async function runUpdate(): Promise<void> {
     const selfCtr  = docker.getContainer('script-manager');
     const selfInfo = await selfCtr.inspect();
     const selfId   = selfInfo.Id;
-    const network  = Object.keys(selfInfo.NetworkSettings.Networks)[0] || 'script-network';
+    const builtinNetworks = new Set(['none', 'bridge', 'host']);
+    const network =
+      process.env.DOCKER_NETWORK ||
+      Object.keys(selfInfo.NetworkSettings.Networks).find(n => !builtinNetworks.has(n)) ||
+      'script-network';
 
     // Clean up any leftover containers from a previous failed update
     for (const leftover of ['script-manager-old']) {
