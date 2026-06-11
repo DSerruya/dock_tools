@@ -57,10 +57,17 @@ router.get('/:runId/stream', async (req: Request, res: Response) => {
     const containerName = `script-${run.scriptName}`;
     const container = docker.getContainer(containerName);
 
+    // Send buffered content first (includes VPN header + output so far)
+    const buffered = logService.getLogContent(run.runId);
+    if (buffered && buffered !== '(no output captured)') {
+      send({ type: 'data', text: buffered });
+    }
+
+    // Follow from current position only — no tail replay to avoid duplicates
     const raw = await container.logs({
       stdout: true, stderr: true,
       follow: true, timestamps: true,
-      tail: 500,
+      tail: 0,
     }) as unknown as NodeJS.ReadableStream;
 
     const stdout = new PassThrough();
