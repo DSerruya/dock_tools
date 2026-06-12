@@ -552,6 +552,9 @@
         <span style="color:var(--border)">│</span>
         <label style="margin:0;text-transform:none;letter-spacing:0;color:var(--muted)">Period:</label>
         <div style="display:flex;gap:4px" id="logs-period-btns">
+          <button class="btn btn-ghost btn-sm logs-period"        data-period="1h"   onclick="setLogsPeriod(this)">1h</button>
+          <button class="btn btn-ghost btn-sm logs-period"        data-period="6h"   onclick="setLogsPeriod(this)">6h</button>
+          <button class="btn btn-ghost btn-sm logs-period"        data-period="12h"  onclick="setLogsPeriod(this)">12h</button>
           <button class="btn btn-ghost btn-sm logs-period active" data-period="24h"  onclick="setLogsPeriod(this)">24h</button>
           <button class="btn btn-ghost btn-sm logs-period"        data-period="7d"   onclick="setLogsPeriod(this)">7d</button>
           <button class="btn btn-ghost btn-sm logs-period"        data-period="30d"  onclick="setLogsPeriod(this)">30d</button>

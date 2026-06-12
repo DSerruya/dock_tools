@@ -860,7 +860,7 @@ function _logsDateRange() {
     };
   }
   const now  = new Date();
-  const msMap = { '24h': 86400000, '7d': 604800000, '30d': 2592000000 };
+  const msMap = { '1h': 3600000, '6h': 21600000, '12h': 43200000, '24h': 86400000, '7d': 604800000, '30d': 2592000000 };
   const ms    = msMap[_logsPeriod] || 86400000;
   return { since: new Date(now - ms).toISOString(), until: now.toISOString() };
 }
@@ -885,7 +885,7 @@ async function loadLogs() {
     const url  = `/api/logs${params.toString() ? '?' + params.toString() : ''}`;
     const runs = await api('GET', url);
 
-    const periodLabel = { '24h':'last 24h', '7d':'last 7d', '30d':'last 30d', 'all':'all time', 'custom':'custom range' }[_logsPeriod] || '';
+    const periodLabel = { '1h':'last 1h', '6h':'last 6h', '12h':'last 12h', '24h':'last 24h', '7d':'last 7d', '30d':'last 30d', 'all':'all time', 'custom':'custom range' }[_logsPeriod] || '';
     document.getElementById('logs-count').textContent = `${runs.length} run${runs.length===1?'':'s'} · ${periodLabel}`;
     renderRunsTable(runs);
     document.getElementById('refresh-label').textContent = `Updated ${new Date().toLocaleTimeString()}`;
