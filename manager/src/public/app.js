@@ -1058,6 +1058,7 @@ function openAddModal() {
   document.getElementById('script-modal-submit').textContent = 'Add Script';
   document.getElementById('f-name').disabled   = false;
   document.getElementById('f-name-hint').style.display = 'none';
+  document.getElementById('env-download-btn').style.display = 'none';
   document.getElementById('add-modal').classList.remove('hidden');
 }
 
@@ -1071,6 +1072,7 @@ function openEditModal(config) {
   document.getElementById('f-name').disabled   = true;
   document.getElementById('f-name-hint').style.display = '';
   document.getElementById('update-check-area').style.display = 'flex';
+  document.getElementById('env-download-btn').style.display = '';
   document.getElementById('add-modal').classList.remove('hidden');
 }
 
@@ -1335,6 +1337,14 @@ function applyEnvPaste() {
 function cancelEnvPaste() {
   document.getElementById('env-paste-area').style.display = 'none';
   document.getElementById('env-paste-input').value = '';
+}
+
+function downloadEnvFile() {
+  if (!editingScriptName) return;
+  const a = document.createElement('a');
+  a.href = `/api/scripts/${encodeURIComponent(editingScriptName)}/env-file`;
+  a.download = `${editingScriptName}.env`;
+  a.click();
 }
 
 function parseEnvText(text) {

@@ -461,4 +461,21 @@ router.get('/:name/download', requireRole('admin', 'agent'), (req, res) => {
   tar.stderr.on('data', () => { /* suppress tar warnings */ });
 });
 
+// GET /api/scripts/:name/env-file — returns the script's env vars as a downloadable .env file
+router.get('/:name/env-file', requireRole('admin', 'agent'), (req, res) => {
+  const config = configService.get(req.params.name);
+  if (!config) return res.status(404).json({ error: 'Script not found' });
+
+  const env = config.env ?? {};
+  const lines = Object.entries(env).map(([k, v]) => {
+    const needsQuotes = /\s|"/.test(v);
+    return needsQuotes ? `${k}="${v.replace(/"/g, '\\"')}"` : `${k}=${v}`;
+  });
+  const content = lines.length ? lines.join('\n') + '\n' : '';
+
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${config.name}.env"`);
+  res.send(content);
+});
+
 export default router;

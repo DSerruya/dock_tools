@@ -707,7 +707,10 @@
       <div class="form-group">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
           <label style="margin-bottom:0">Environment Variables</label>
-          <button class="btn btn-ghost btn-sm" onclick="toggleEnvPaste()" id="env-paste-toggle">Paste .env</button>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-ghost btn-sm" onclick="toggleEnvPaste()" id="env-paste-toggle">Paste .env</button>
+            <button class="btn btn-ghost btn-sm" id="env-download-btn" onclick="downloadEnvFile()" style="display:none" title="Download .env file">&#8595; Download .env</button>
+          </div>
         </div>
         <div class="env-paste-area" id="env-paste-area">
           <textarea id="env-paste-input" placeholder="Paste .env content here&#10;KEY=value&#10;ANOTHER_KEY=another value"></textarea>
