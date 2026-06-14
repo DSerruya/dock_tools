@@ -824,7 +824,7 @@ function filterLogs(scriptName) {
 }
 
 // ── Logs date-period filter ───────────────────────────────────────────────────
-let _logsPeriod = '24h';   // default
+let _logsPeriod = '1h';   // default
 
 function setLogsPeriod(btn) {
   document.querySelectorAll('.logs-period').forEach(b => b.classList.remove('active'));
