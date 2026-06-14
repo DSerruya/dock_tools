@@ -1339,6 +1339,11 @@ function cancelEnvPaste() {
   document.getElementById('env-paste-input').value = '';
 }
 
+function clearEnvRows() {
+  if (!confirm('Remove all environment variables?')) return;
+  document.getElementById('env-rows').innerHTML = '';
+}
+
 function downloadEnvFile() {
   if (!editingScriptName) return;
   const a = document.createElement('a');
