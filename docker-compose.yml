@@ -37,7 +37,24 @@ services:
     networks:
       - script-network
 
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    volumes:
+      - ollama_models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+    networks:
+      - script-network
+
 networks:
   script-network:
     name: script-network
     driver: bridge
+
+volumes:
+  ollama_models:

@@ -85,7 +85,7 @@ function showTab(tab) {
   if (tab === 'scripts')    loadScripts();
   else if (tab === 'logs')  loadLogs();
   else if (tab === 'audit') loadAudit();
-  else if (tab === 'admin') { loadUsers(); loadSystemVersion(); }
+  else if (tab === 'admin') { loadUsers(); loadSystemVersion(); loadAddons(); }
 }
 
 /* ── Role helpers ──────────────────────────────────────────────────────────── */
@@ -1442,6 +1442,82 @@ async function submitEdit() {
 }
 
 /* ── Utilities ────────────────────────────────────────────────────────────── */
+// ── Addons ────────────────────────────────────────────────────────────────────
+
+let addonPollTimer = null;
+
+async function loadAddons() {
+  try {
+    const addons = await api('GET', '/api/admin/addons');
+    renderAddons(addons);
+    const busy = addons.some(a => a.opStatus === 'installing' || a.opStatus === 'removing');
+    clearTimeout(addonPollTimer);
+    if (busy) addonPollTimer = setTimeout(loadAddons, 2000);
+  } catch (e) {
+    const el = document.getElementById('addons-container');
+    if (el) el.innerHTML = `<div style="font-size:12px;color:var(--red)">Error: ${e.message}</div>`;
+  }
+}
+
+function renderAddons(addons) {
+  const container = document.getElementById('addons-container');
+  if (!container) return;
+  if (!addons.length) {
+    container.innerHTML = '<div style="font-size:12px;color:var(--muted)">No addons configured.</div>';
+    return;
+  }
+  container.innerHTML = addons.map((a, i) => {
+    const isBusy = a.opStatus === 'installing' || a.opStatus === 'removing';
+    let statusBadge;
+    if      (a.opStatus === 'installing')  statusBadge = '<span style="font-size:11px;color:var(--accent)">⟳ Installing…</span>';
+    else if (a.opStatus === 'removing')    statusBadge = '<span style="font-size:11px;color:var(--yellow,#facc15)">⟳ Removing…</span>';
+    else if (a.opStatus === 'error')       statusBadge = `<span style="font-size:11px;color:var(--red)" title="${escHtml(a.error||'')}">✗ Error</span>`;
+    else if (!a.containerFound)            statusBadge = '<span style="font-size:11px;color:var(--muted)">Container not found</span>';
+    else if (a.installed)                  statusBadge = '<span style="font-size:11px;color:var(--green)">✓ Installed</span>';
+    else                                   statusBadge = '<span style="font-size:11px;color:var(--muted)">Not installed</span>';
+
+    const showLog = (isBusy || a.opStatus === 'done' || a.opStatus === 'error') && a.log;
+    const logBlock = showLog
+      ? `<pre style="margin-top:10px;font-family:'Courier New',monospace;font-size:11px;background:#0a0c12;border:1px solid var(--border);border-radius:6px;padding:8px;max-height:160px;overflow-y:auto;color:#a3e635;white-space:pre-wrap;word-break:break-all">${escHtml(a.log)}</pre>`
+      : '';
+    const sep = i < addons.length - 1
+      ? 'padding-bottom:12px;margin-bottom:12px;border-bottom:1px solid var(--border);'
+      : '';
+    return `
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px;${sep}">
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+            <span style="font-size:13px;font-weight:600">${escHtml(a.name)}</span>
+            ${statusBadge}
+          </div>
+          <div style="font-size:12px;color:var(--muted);line-height:1.5">${escHtml(a.description)}</div>
+          ${logBlock}
+        </div>
+        <div style="display:flex;gap:8px;flex-shrink:0;margin-top:2px">
+          <button class="btn btn-primary btn-sm" onclick="installAddon('${escHtml(a.id)}')"
+            ${(isBusy || a.installed || !a.containerFound) ? 'disabled' : ''}>↓ Install</button>
+          <button class="btn btn-ghost btn-sm" onclick="removeAddon('${escHtml(a.id)}')"
+            ${(isBusy || !a.installed || !a.containerFound) ? 'disabled' : ''}>✕ Remove</button>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+async function installAddon(id) {
+  try {
+    await api('POST', `/api/admin/addons/${id}/install`);
+    await loadAddons();
+  } catch (e) { alert('Install failed: ' + e.message); }
+}
+
+async function removeAddon(id) {
+  if (!confirm('Remove this addon?')) return;
+  try {
+    await api('POST', `/api/admin/addons/${id}/remove`);
+    await loadAddons();
+  } catch (e) { alert('Remove failed: ' + e.message); }
+}
+
 function escHtml(str) {
   return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }

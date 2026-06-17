@@ -319,4 +319,147 @@ router.delete('/users/:username', (req, res) => {
   } catch (err: any) { res.status(400).json({ error: err.message }); }
 });
 
+// ── Addons ────────────────────────────────────────────────────────────────────
+
+interface AddonDef {
+  id:          string;
+  name:        string;
+  description: string;
+  container:   string;
+  checkCmd:    string[];
+  checkFn:     (output: string) => boolean;
+  installCmd:  string[];
+  removeCmd:   string[];
+}
+
+const ADDONS: AddonDef[] = [
+  {
+    id:          'ollama-llama3',
+    name:        'Ollama – llama3 model',
+    description: 'One-time step after Dock Tools starts: pull the Ollama model by running docker exec ollama ollama pull llama3 once.',
+    container:   'ollama',
+    checkCmd:    ['ollama', 'list'],
+    checkFn:     (out) => /llama3/i.test(out),
+    installCmd:  ['ollama', 'pull', 'llama3'],
+    removeCmd:   ['ollama', 'rm', 'llama3'],
+  },
+];
+
+type AddonOpStatus = 'idle' | 'installing' | 'removing' | 'done' | 'error';
+
+interface AddonOpState {
+  status: AddonOpStatus;
+  log:    string;
+  error?: string;
+}
+
+const addonOpStates = new Map<string, AddonOpState>(
+  ADDONS.map(a => [a.id, { status: 'idle', log: '' }])
+);
+
+function spawnCollect(cmd: string, args: string[]): Promise<{ output: string; code: number }> {
+  return new Promise((resolve) => {
+    const proc = spawn(cmd, args);
+    let output = '';
+    proc.stdout.on('data', (d: Buffer) => { output += d.toString(); });
+    proc.stderr.on('data', (d: Buffer) => { output += d.toString(); });
+    proc.on('close', (code: number | null) => resolve({ output, code: code ?? 1 }));
+    proc.on('error', (err: Error) => resolve({ output: err.message, code: 1 }));
+  });
+}
+
+async function checkAddonInstalled(def: AddonDef): Promise<{ containerFound: boolean; installed: boolean }> {
+  const { code } = await spawnCollect('docker', ['inspect', '--format={{.Name}}', def.container]);
+  if (code !== 0) return { containerFound: false, installed: false };
+  const { output, code: listCode } = await spawnCollect('docker', ['exec', def.container, ...def.checkCmd]);
+  return { containerFound: true, installed: listCode === 0 && def.checkFn(output) };
+}
+
+function runAddonOp(id: string, op: 'install' | 'remove'): void {
+  const def   = ADDONS.find(a => a.id === id);
+  const state = addonOpStates.get(id);
+  if (!def || !state) return;
+
+  state.log   = '';
+  delete state.error;
+
+  const cmd  = op === 'install' ? def.installCmd : def.removeCmd;
+  const proc = spawn('docker', ['exec', def.container, ...cmd]);
+
+  proc.stdout.on('data', (d: Buffer) => { state.log += d.toString(); });
+  proc.stderr.on('data', (d: Buffer) => { state.log += d.toString(); });
+  proc.on('close', (code: number | null) => {
+    if (code === 0) {
+      state.status = 'done';
+    } else {
+      state.status = 'error';
+      state.error  = `Process exited with code ${code}`;
+    }
+  });
+  proc.on('error', (err: Error) => {
+    state.status = 'error';
+    state.error  = err.message;
+    state.log   += '\n' + err.message;
+  });
+}
+
+// GET /api/admin/addons
+router.get('/addons', async (_req, res) => {
+  const results = await Promise.all(ADDONS.map(async (def) => {
+    const opState = addonOpStates.get(def.id)!;
+    const isBusy  = opState.status === 'installing' || opState.status === 'removing';
+    let containerFound = false;
+    let installed      = false;
+    if (!isBusy) {
+      ({ containerFound, installed } = await checkAddonInstalled(def));
+    } else {
+      containerFound = true;
+    }
+    return {
+      id:             def.id,
+      name:           def.name,
+      description:    def.description,
+      containerFound,
+      installed,
+      opStatus:       opState.status,
+      log:            opState.log,
+      error:          opState.error,
+    };
+  }));
+  res.json(results);
+});
+
+// GET /api/admin/addons/:id/status
+router.get('/addons/:id/status', (req, res) => {
+  const state = addonOpStates.get(req.params.id);
+  if (!state) return res.status(404).json({ error: 'Unknown addon' });
+  res.json(state);
+});
+
+// POST /api/admin/addons/:id/install
+router.post('/addons/:id/install', (req, res) => {
+  const { id }  = req.params;
+  const def     = ADDONS.find(a => a.id === id);
+  const state   = addonOpStates.get(id);
+  if (!def || !state) return res.status(404).json({ error: 'Unknown addon' });
+  if (state.status === 'installing' || state.status === 'removing')
+    return res.status(409).json({ error: 'Operation already in progress' });
+  state.status = 'installing';
+  res.json({ message: 'Install started' });
+  setImmediate(() => runAddonOp(id, 'install'));
+});
+
+// POST /api/admin/addons/:id/remove
+router.post('/addons/:id/remove', (req, res) => {
+  const { id }  = req.params;
+  const def     = ADDONS.find(a => a.id === id);
+  const state   = addonOpStates.get(id);
+  if (!def || !state) return res.status(404).json({ error: 'Unknown addon' });
+  if (state.status === 'installing' || state.status === 'removing')
+    return res.status(409).json({ error: 'Operation already in progress' });
+  state.status = 'removing';
+  res.json({ message: 'Remove started' });
+  setImmediate(() => runAddonOp(id, 'remove'));
+});
+
 export default router;
