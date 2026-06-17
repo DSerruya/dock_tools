@@ -357,25 +357,34 @@ const addonOpStates = new Map<string, AddonOpState>(
   ADDONS.map(a => [a.id, { status: 'idle', log: '' }])
 );
 
-function spawnCollect(cmd: string, args: string[]): Promise<{ output: string; code: number }> {
-  return new Promise((resolve) => {
-    const proc = spawn(cmd, args);
-    let output = '';
-    proc.stdout.on('data', (d: Buffer) => { output += d.toString(); });
-    proc.stderr.on('data', (d: Buffer) => { output += d.toString(); });
-    proc.on('close', (code: number | null) => resolve({ output, code: code ?? 1 }));
-    proc.on('error', (err: Error) => resolve({ output: err.message, code: 1 }));
+async function dockerExecCollect(containerName: string, cmd: string[]): Promise<string> {
+  const exec = await docker.getContainer(containerName).exec({
+    Cmd: cmd, AttachStdout: true, AttachStderr: true, Tty: true,
+  });
+  const stream = await exec.start({ hijack: true, stdin: false });
+  return new Promise<string>((resolve, reject) => {
+    let out = '';
+    stream.on('data',  (d: Buffer) => { out += d.toString(); });
+    stream.on('end',   () => resolve(out));
+    stream.on('error', reject);
   });
 }
 
 async function checkAddonInstalled(def: AddonDef): Promise<{ containerFound: boolean; installed: boolean }> {
-  const { code } = await spawnCollect('docker', ['inspect', '--format={{.Name}}', def.container]);
-  if (code !== 0) return { containerFound: false, installed: false };
-  const { output, code: listCode } = await spawnCollect('docker', ['exec', def.container, ...def.checkCmd]);
-  return { containerFound: true, installed: listCode === 0 && def.checkFn(output) };
+  try {
+    await docker.getContainer(def.container).inspect();
+  } catch {
+    return { containerFound: false, installed: false };
+  }
+  try {
+    const out = await dockerExecCollect(def.container, def.checkCmd);
+    return { containerFound: true, installed: def.checkFn(out) };
+  } catch {
+    return { containerFound: true, installed: false };
+  }
 }
 
-function runAddonOp(id: string, op: 'install' | 'remove'): void {
+async function runAddonOp(id: string, op: 'install' | 'remove'): Promise<void> {
   const def   = ADDONS.find(a => a.id === id);
   const state = addonOpStates.get(id);
   if (!def || !state) return;
@@ -383,24 +392,34 @@ function runAddonOp(id: string, op: 'install' | 'remove'): void {
   state.log   = '';
   delete state.error;
 
-  const cmd  = op === 'install' ? def.installCmd : def.removeCmd;
-  const proc = spawn('docker', ['exec', def.container, ...cmd]);
-
-  proc.stdout.on('data', (d: Buffer) => { state.log += d.toString(); });
-  proc.stderr.on('data', (d: Buffer) => { state.log += d.toString(); });
-  proc.on('close', (code: number | null) => {
-    if (code === 0) {
-      state.status = 'done';
-    } else {
-      state.status = 'error';
-      state.error  = `Process exited with code ${code}`;
-    }
-  });
-  proc.on('error', (err: Error) => {
+  const cmd = op === 'install' ? def.installCmd : def.removeCmd;
+  try {
+    const exec = await docker.getContainer(def.container).exec({
+      Cmd: cmd, AttachStdout: true, AttachStderr: true, Tty: true,
+    });
+    const stream = await exec.start({ hijack: true, stdin: false });
+    await new Promise<void>((resolve, reject) => {
+      stream.on('data',  (d: Buffer) => { state.log += d.toString(); });
+      stream.on('end',   async () => {
+        try {
+          const info = await exec.inspect();
+          const code = (info as any).ExitCode ?? 0;
+          state.status = code === 0 ? 'done' : 'error';
+          if (code !== 0) state.error = `Exit code ${code}`;
+        } catch { state.status = 'done'; }
+        resolve();
+      });
+      stream.on('error', (err: Error) => {
+        state.status = 'error';
+        state.error  = err.message;
+        reject(err);
+      });
+    });
+  } catch (err: any) {
     state.status = 'error';
     state.error  = err.message;
     state.log   += '\n' + err.message;
-  });
+  }
 }
 
 // GET /api/admin/addons
