@@ -51,6 +51,18 @@ services:
     networks:
       - script-network
 
+  health-checker:
+    image: alpine:latest
+    container_name: health-checker
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - .:/project
+    working_dir: /project
+    entrypoint: ["/bin/sh", "-c", "apk add --no-cache docker-cli && crond -f -l 8"]
+    restart: unless-stopped
+    networks:
+      - script-network
+
 networks:
   script-network:
     name: script-network

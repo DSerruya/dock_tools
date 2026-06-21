@@ -343,6 +343,16 @@ const ADDONS: AddonDef[] = [
     installCmd:  ['ollama', 'pull', 'llama3'],
     removeCmd:   ['ollama', 'rm', 'llama3'],
   },
+  {
+    id:          'docker-health-check',
+    name:        'Docker Health Check',
+    description: 'Schedules a cron job every 30 minutes to check if the compose stack is running and restart it automatically if any service is down.',
+    container:   'health-checker',
+    checkCmd:    ['crontab', '-l'],
+    checkFn:     (out) => out.includes('docker compose'),
+    installCmd:  ['sh', '-c', 'echo "*/30 * * * * cd /project && docker compose up -d >> /var/log/healthcheck.log 2>&1" | crontab -'],
+    removeCmd:   ['crontab', '-r'],
+  },
 ];
 
 type AddonOpStatus = 'idle' | 'installing' | 'removing' | 'done' | 'error';
