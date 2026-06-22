@@ -344,6 +344,16 @@ const ADDONS: AddonDef[] = [
     removeCmd:   ['ollama', 'rm', 'llama3'],
   },
   {
+    id:          'ollama-gemma3-12b',
+    name:        'Ollama – gemma3:12b model',
+    description: 'One-time step after Dock Tools starts: pull the Ollama model by running docker exec ollama ollama pull gemma3:12b once.',
+    container:   'ollama',
+    checkCmd:    ['ollama', 'list'],
+    checkFn:     (out) => /gemma3:12b/i.test(out),
+    installCmd:  ['ollama', 'pull', 'gemma3:12b'],
+    removeCmd:   ['ollama', 'rm', 'gemma3:12b'],
+  },
+  {
     id:          'docker-health-check',
     name:        'Docker Health Check',
     description: 'Schedules a cron job every 30 minutes to check if the compose stack is running and restart it automatically if any service is down.',
