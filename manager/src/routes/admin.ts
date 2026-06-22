@@ -32,6 +32,21 @@ function appendLog(line: string): void {
   console.log('[update]', line);
 }
 
+// Locate own container: Docker sets hostname = short container ID, so try that first,
+// then fall back to the well-known compose name in case the hostname was overridden.
+async function getSelfContainer(): Promise<{ container: Dockerode.Container; info: Dockerode.ContainerInspectInfo }> {
+  const hostname = os.hostname();
+  try {
+    const ctr  = docker.getContainer(hostname);
+    const info = await ctr.inspect();
+    return { container: ctr, info };
+  } catch (_) {}
+
+  const ctr  = docker.getContainer('script-manager');
+  const info = await ctr.inspect();
+  return { container: ctr, info };
+}
+
 async function buildImage(contextDir: string, commitSha: string): Promise<void> {
   const tarProc = spawn('tar', ['-c', '-C', contextDir, '.']);
 
@@ -69,8 +84,7 @@ async function runUpdate(): Promise<void> {
     await buildImage(path.join(tmpDir, 'manager'), commitSha);
     appendLog('Build complete. Recreating container with new image …');
 
-    const selfCtr  = docker.getContainer('script-manager');
-    const selfInfo = await selfCtr.inspect();
+    const { container: selfCtr, info: selfInfo } = await getSelfContainer();
     const selfId   = selfInfo.Id;
     const builtinNetworks = new Set(['none', 'bridge', 'host']);
     const network =
