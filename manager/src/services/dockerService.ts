@@ -98,7 +98,11 @@ async function startVpnSidecar(name: string): Promise<void> {
       Binds:   [`${hostVpnConfigPath(name)}:/vpn/config.ovpn:ro`],
       CapAdd:  ['NET_ADMIN'],
       Devices: [{ PathOnHost: '/dev/net/tun', PathInContainer: '/dev/net/tun', CgroupPermissions: 'rwm' }],
-      NetworkMode: DOCKER_NETWORK,
+    },
+    NetworkingConfig: {
+      EndpointsConfig: {
+        [DOCKER_NETWORK]: { Aliases: [name, vpnContainerName(name)] },
+      },
     },
   });
   await c.start();
@@ -145,7 +149,6 @@ async function createContainer(config: ScriptConfig, restartPolicy: string): Pro
     HostConfig: {
       Binds:         [bindMount],
       RestartPolicy: { Name: restartPolicy },
-      NetworkMode:   DOCKER_NETWORK,
       // Hardened defaults — not user-configurable.
       // Privileged stays false (most important guard).
       // Drop NET_RAW (raw packet crafting/sniffing) — the one default cap
@@ -155,11 +158,19 @@ async function createContainer(config: ScriptConfig, restartPolicy: string): Pro
       CapAdd:     [],
       CapDrop:    ['NET_RAW'],
     },
+    NetworkingConfig: {
+      EndpointsConfig: {
+        [DOCKER_NETWORK]: { Aliases: [config.name, containerName(config.name)] },
+      },
+    },
   };
 
   if (config.vpnEnabled) {
-    // Share network namespace with VPN sidecar — port binding not available
+    // Share network namespace with VPN sidecar — port binding not available.
+    // NetworkingConfig is rejected by Docker when joining another container's
+    // network namespace, so it must be removed.
     opts.HostConfig!.NetworkMode = `container:${vpnContainerName(config.name)}`;
+    delete opts.NetworkingConfig;
   } else if (config.port) {
     opts.ExposedPorts = { [`${config.port}/tcp`]: {} };
     opts.HostConfig!.PortBindings = {
