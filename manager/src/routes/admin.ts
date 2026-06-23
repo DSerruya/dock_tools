@@ -560,11 +560,12 @@ router.get('/ollama/cpu-check', async (_req, res) => {
 
     const info = await docker.getContainer('ollama').inspect();
     const env: string[] = info.Config.Env || [];
-    const noAmxSet     = env.some((e: string) => e === 'OLLAMA_NO_AMX=1');
-    const noGgmlAmxSet = env.some((e: string) => e === 'GGML_NO_AMX=1');
-    const avx2OnlySet  = env.some((e: string) => e === 'OLLAMA_CPU_FEATURES=avx2');
+    const noAmxSet      = env.some((e: string) => e === 'OLLAMA_NO_AMX=1');
+    const noGgmlAmxSet  = env.some((e: string) => e === 'GGML_NO_AMX=1');
+    const avx2OnlySet   = env.some((e: string) => e === 'OLLAMA_CPU_FEATURES=avx2');
+    const avx2RunnerSet = env.some((e: string) => e === 'OLLAMA_LLM_LIBRARY=cpu_avx2');
 
-    res.json({ containerFound: true, flags, hasAmx, noAmxSet, noGgmlAmxSet, avx2OnlySet });
+    res.json({ containerFound: true, flags, hasAmx, noAmxSet, noGgmlAmxSet, avx2OnlySet, avx2RunnerSet });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -609,6 +610,17 @@ router.post('/ollama/restart-avx2-only', async (_req, res) => {
   try {
     await recreateOllama({ OLLAMA_CPU_FEATURES: 'avx2' });
     res.json({ message: 'Ollama restarted with OLLAMA_CPU_FEATURES=avx2' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/ollama/restart-avx2-runner
+// Forces Ollama to use the AVX2 CPU runner instead of auto-detecting AMX.
+router.post('/ollama/restart-avx2-runner', async (_req, res) => {
+  try {
+    await recreateOllama({ OLLAMA_LLM_LIBRARY: 'cpu_avx2' });
+    res.json({ message: 'Ollama restarted with OLLAMA_LLM_LIBRARY=cpu_avx2' });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
