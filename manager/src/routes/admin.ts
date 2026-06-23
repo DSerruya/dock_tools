@@ -415,11 +415,13 @@ async function dockerExecCollect(containerName: string, cmd: string[]): Promise<
 }
 
 async function checkAddonInstalled(def: AddonDef): Promise<{ containerFound: boolean; installed: boolean }> {
+  let info: any;
   try {
-    await docker.getContainer(def.container).inspect();
+    info = await docker.getContainer(def.container).inspect();
   } catch {
     return { containerFound: false, installed: false };
   }
+  if (!info.State.Running) return { containerFound: false, installed: false };
   try {
     const out = await dockerExecCollect(def.container, def.checkCmd);
     return { containerFound: true, installed: def.checkFn(out) };
@@ -438,6 +440,17 @@ async function runAddonOp(id: string, op: 'install' | 'remove'): Promise<void> {
 
   const cmd = op === 'install' ? def.installCmd : def.removeCmd;
   try {
+    const containerInfo = await docker.getContainer(def.container).inspect().catch(() => null);
+    if (!containerInfo) {
+      state.status = 'error';
+      state.error  = `Container "${def.container}" not found — is the stack running?`;
+      return;
+    }
+    if (!containerInfo.State.Running) {
+      state.status = 'error';
+      state.error  = `Container "${def.container}" is not running — start it first.`;
+      return;
+    }
     const exec = await docker.getContainer(def.container).exec({
       Cmd: cmd, AttachStdout: true, AttachStderr: true, Tty: true,
     });
