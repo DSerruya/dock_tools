@@ -209,6 +209,7 @@ function renderCard({ config, status, nextRun, vpnStatus }) {
         ${writeActions}
         ${editBtn}
         <button class="btn btn-ghost btn-sm" onclick="showTab('logs');filterLogs('${config.name}')">📋 Logs</button>
+        <button class="btn btn-ghost btn-sm" onclick="showLiveLogs('${escHtml(config.name)}')" title="Stream live docker logs for this container">📡 Live Logs</button>
         <button class="btn btn-ghost btn-sm" onclick="downloadScript('${escHtml(config.name)}')" title="Download cloned repo as .tar.gz">⬇</button>
         ${deleteBtn}
       </div>
@@ -1017,6 +1018,60 @@ function closeLogViewer() {
   if (currentEventSource) { currentEventSource.close(); currentEventSource = null; }
   document.getElementById('log-viewer-modal').classList.add('hidden');
   document.getElementById('lv-live-badge').style.display = 'none';
+}
+
+function showLiveLogs(scriptName) {
+  if (currentEventSource) { currentEventSource.close(); currentEventSource = null; }
+
+  document.getElementById('log-viewer-modal').classList.remove('hidden');
+  document.getElementById('lv-title').textContent = `Live Logs — ${scriptName}`;
+  document.getElementById('lv-meta').innerHTML =
+    `<span>Container: <code style="color:var(--accent)">script-${escHtml(scriptName)}</code></span>` +
+    `<span style="color:var(--border)"> │ </span>` +
+    `<span>Last 50 lines + following</span>`;
+
+  const output = document.getElementById('lv-output');
+  output.textContent = '';
+  autoScroll = true;
+
+  document.getElementById('lv-live-badge').style.display = '';
+
+  const es = new EventSource(`/api/logs/container/${encodeURIComponent(scriptName)}/stream?tail=50`);
+  currentEventSource = es;
+
+  es.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+
+    if (msg.type === 'data' || msg.type === 'content') {
+      output.textContent += msg.text;
+      if (autoScroll) output.scrollTop = output.scrollHeight;
+    }
+
+    if (msg.type === 'end') {
+      document.getElementById('lv-live-badge').style.display = 'none';
+      output.textContent += '\n[container stopped]\n';
+      es.close();
+      currentEventSource = null;
+      if (autoScroll) output.scrollTop = output.scrollHeight;
+    }
+
+    if (msg.type === 'error') {
+      document.getElementById('lv-live-badge').style.display = 'none';
+      output.textContent += `\n[error] ${msg.text}\n`;
+      es.close();
+      currentEventSource = null;
+    }
+  };
+
+  es.onerror = () => {
+    document.getElementById('lv-live-badge').style.display = 'none';
+    es.close();
+    currentEventSource = null;
+  };
+
+  output.addEventListener('scroll', () => {
+    autoScroll = output.scrollTop + output.clientHeight >= output.scrollHeight - 10;
+  });
 }
 
 async function copyLogs() {

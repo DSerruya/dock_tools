@@ -23,6 +23,55 @@ router.get('/', (req, res) => {
   res.json(runs);
 });
 
+// GET /api/logs/container/:name/stream  — SSE: tail + follow directly from a running container
+// This bypasses the run-tracking system and queries docker logs directly, so it works even when
+// the container was started externally and has no corresponding run record.
+router.get('/container/:name/stream', async (req: Request, res: Response) => {
+  res.setHeader('Content-Type',      'text/event-stream');
+  res.setHeader('Cache-Control',     'no-cache');
+  res.setHeader('Connection',        'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  const send = (payload: object) =>
+    res.write(`data: ${JSON.stringify(payload)}\n\n`);
+
+  const tail = Math.min(parseInt((req.query.tail as string) || '50', 10), 1000);
+  const containerName = `script-${req.params.name}`;
+
+  try {
+    const container = docker.getContainer(containerName);
+    await container.inspect(); // throws 404 if container doesn't exist
+
+    const raw = await container.logs({
+      stdout: true, stderr: true,
+      follow: true, timestamps: true,
+      tail,
+    }) as unknown as NodeJS.ReadableStream;
+
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
+    (docker as any).modem.demuxStream(raw, stdout, stderr);
+
+    const onData = (chunk: Buffer) =>
+      send({ type: 'data', text: chunk.toString('utf8') });
+
+    stdout.on('data', onData);
+    stderr.on('data', onData);
+
+    raw.on('end', () => {
+      send({ type: 'end', status: 'stopped' });
+      res.end();
+    });
+
+    req.on('close', () => (raw as any).destroy?.());
+
+  } catch (err: any) {
+    send({ type: 'error', text: err.message.includes('404') ? `Container "script-${req.params.name}" not found or not running` : err.message });
+    res.end();
+  }
+});
+
 // GET /api/logs/:runId/content  — full saved log for completed runs
 router.get('/:runId/content', (req, res) => {
   const run = logService.getRun(req.params.runId);
