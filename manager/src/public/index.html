@@ -489,6 +489,7 @@
         <button class="btn btn-primary btn-sm" id="ollama-fix-btn" style="display:none" onclick="ollamaApplyAmxFix()" title="Crash on Ollama startup — CPU doesn't fully support AMX">⚡ Fix: OLLAMA_NO_AMX=1</button>
         <button class="btn btn-primary btn-sm" id="ollama-ggml-fix-btn" style="display:none" onclick="ollamaApplyGgmlAmxFix()" title="Crash when querying a model — CPU supports AMX but hits GGML init bug">⚡ Fix: GGML_NO_AMX=1</button>
         <button class="btn btn-primary btn-sm" id="ollama-both-fix-btn" style="display:none" onclick="ollamaApplyBothAmxFix()" title="Not sure when it crashes — apply both fixes at once">⚡ Fix: Both AMX flags</button>
+        <button class="btn btn-primary btn-sm" id="ollama-avx2-fix-btn" style="display:none" onclick="ollamaApplyAvx2Fix()" title="Cap CPU instruction set to AVX2 only, skipping AMX and AVX-512">⚡ Fix: AVX2 only</button>
       </div>
     </div>
 

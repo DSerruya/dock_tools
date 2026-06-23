@@ -1581,11 +1581,12 @@ async function ollamaCpuCheck() {
   const fixBtn       = document.getElementById('ollama-fix-btn');
   const ggmlFixBtn   = document.getElementById('ollama-ggml-fix-btn');
   const bothFixBtn   = document.getElementById('ollama-both-fix-btn');
+  const avx2FixBtn   = document.getElementById('ollama-avx2-fix-btn');
 
   btn.disabled = true;
   btn.textContent = '⟳ Checking…';
   result.innerHTML = '';
-  [updateBtn, fixBtn, ggmlFixBtn, bothFixBtn].forEach(b => { b.style.display = 'none'; });
+  [updateBtn, fixBtn, ggmlFixBtn, bothFixBtn, avx2FixBtn].forEach(b => { b.style.display = 'none'; });
 
   try {
     const data = await api('GET', '/api/admin/ollama/cpu-check');
@@ -1604,7 +1605,8 @@ async function ollamaCpuCheck() {
 
     let envStatus = '';
     if (data.noAmxSet)     envStatus += '<code style="font-size:11px;color:var(--green)">OLLAMA_NO_AMX=1</code> ';
-    if (data.noGgmlAmxSet) envStatus += '<code style="font-size:11px;color:var(--green)">GGML_NO_AMX=1</code>';
+    if (data.noGgmlAmxSet) envStatus += '<code style="font-size:11px;color:var(--green)">GGML_NO_AMX=1</code> ';
+    if (data.avx2OnlySet)  envStatus += '<code style="font-size:11px;color:var(--green)">OLLAMA_CPU_FEATURES=avx2</code>';
     const envLine = envStatus
       ? `<div style="margin-top:6px;font-size:12px;color:var(--muted)">Active fixes: ${envStatus}</div>`
       : '';
@@ -1621,6 +1623,7 @@ async function ollamaCpuCheck() {
       if (!data.noAmxSet)     fixBtn.style.display = '';
       if (!data.noGgmlAmxSet) ggmlFixBtn.style.display = '';
       if (!data.noAmxSet || !data.noGgmlAmxSet) bothFixBtn.style.display = '';
+      if (!data.avx2OnlySet) avx2FixBtn.style.display = '';
     } else {
       guidance = `<div style="margin-top:8px;font-size:12px;color:var(--green)">✓ No AMX features detected — CPU compatibility looks fine.</div>`;
     }
@@ -1662,6 +1665,10 @@ async function ollamaApplyGgmlAmxFix() {
 
 async function ollamaApplyBothAmxFix() {
   await _ollamaRestartAction('/api/admin/ollama/restart-no-both-amx', 'OLLAMA_NO_AMX=1 + GGML_NO_AMX=1', 'ollama-both-fix-btn', '⚡ Fix: Both AMX flags');
+}
+
+async function ollamaApplyAvx2Fix() {
+  await _ollamaRestartAction('/api/admin/ollama/restart-avx2-only', 'OLLAMA_CPU_FEATURES=avx2', 'ollama-avx2-fix-btn', '⚡ Fix: AVX2 only');
 }
 
 async function ollamaUpdate() {

@@ -562,8 +562,9 @@ router.get('/ollama/cpu-check', async (_req, res) => {
     const env: string[] = info.Config.Env || [];
     const noAmxSet     = env.some((e: string) => e === 'OLLAMA_NO_AMX=1');
     const noGgmlAmxSet = env.some((e: string) => e === 'GGML_NO_AMX=1');
+    const avx2OnlySet  = env.some((e: string) => e === 'OLLAMA_CPU_FEATURES=avx2');
 
-    res.json({ containerFound: true, flags, hasAmx, noAmxSet, noGgmlAmxSet });
+    res.json({ containerFound: true, flags, hasAmx, noAmxSet, noGgmlAmxSet, avx2OnlySet });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -597,6 +598,17 @@ router.post('/ollama/restart-no-both-amx', async (_req, res) => {
   try {
     await recreateOllama({ OLLAMA_NO_AMX: '1', GGML_NO_AMX: '1' });
     res.json({ message: 'Ollama restarted with OLLAMA_NO_AMX=1 and GGML_NO_AMX=1' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/ollama/restart-avx2-only
+// Caps Ollama at AVX2 instruction set, preventing it from using AMX or AVX-512.
+router.post('/ollama/restart-avx2-only', async (_req, res) => {
+  try {
+    await recreateOllama({ OLLAMA_CPU_FEATURES: 'avx2' });
+    res.json({ message: 'Ollama restarted with OLLAMA_CPU_FEATURES=avx2' });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
