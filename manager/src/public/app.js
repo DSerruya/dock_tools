@@ -1573,6 +1573,71 @@ async function removeAddon(id) {
   } catch (e) { alert('Remove failed: ' + e.message); }
 }
 
+/* ── Ollama CPU diagnostics ──────────────────────────────────────────────── */
+async function ollamaCpuCheck() {
+  const btn    = document.getElementById('ollama-cpu-btn');
+  const result = document.getElementById('ollama-cpu-result');
+  const fixBtn = document.getElementById('ollama-fix-btn');
+  btn.disabled = true;
+  btn.textContent = '⟳ Checking…';
+  result.innerHTML = '';
+  fixBtn.style.display = 'none';
+
+  try {
+    const data = await api('GET', '/api/admin/ollama/cpu-check');
+
+    if (!data.containerFound) {
+      result.innerHTML = '<span style="font-size:12px;color:var(--muted)">Ollama container not found — is it running?</span>';
+      return;
+    }
+
+    const flagsHtml = data.flags.length
+      ? data.flags.map(f => {
+          const isAmx = f.startsWith('amx');
+          return `<code style="display:inline-block;margin:2px 4px 2px 0;padding:1px 6px;border-radius:4px;font-size:11px;background:${isAmx ? '#3b1215' : '#0f1623'};color:${isAmx ? '#f87171' : '#94a3b8'}">${escHtml(f)}</code>`;
+        }).join('')
+      : '<span style="font-size:12px;color:var(--muted)">No AMX/AVX flags found</span>';
+
+    const amxWarning = data.hasAmx
+      ? `<div style="margin-top:8px;padding:8px 10px;background:#2d1212;border:1px solid #7f1d1d;border-radius:6px;font-size:12px;color:#fca5a5;line-height:1.5">
+           ⚠ AMX instructions detected — this may cause segfaults in llama3 / gemma3:12b.<br>
+           ${data.noAmxSet
+             ? 'Click <strong>Apply Fix</strong> to restart Ollama with <code>OLLAMA_NO_AMX=1</code>.'
+             : '✓ Fix already applied (<code>OLLAMA_NO_AMX=1</code> is set). To make it permanent, add it to your <code>.env</code> file.'}
+         </div>`
+      : `<div style="margin-top:8px;font-size:12px;color:var(--green)">✓ No AMX features detected — CPU compatibility looks fine.</div>`;
+
+    result.innerHTML = `<div style="margin-bottom:6px;font-size:12px;color:var(--muted)">CPU flags:</div>${flagsHtml}${amxWarning}`;
+
+    if (data.hasAmx && !data.noAmxSet) fixBtn.style.display = '';
+  } catch (e) {
+    result.innerHTML = `<span style="font-size:12px;color:var(--red)">Error: ${escHtml(e.message)}</span>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🔍 Check CPU Flags';
+  }
+}
+
+async function ollamaApplyAmxFix() {
+  const btn    = document.getElementById('ollama-fix-btn');
+  const result = document.getElementById('ollama-cpu-result');
+  if (!confirm('This will stop, remove, and recreate the Ollama container with OLLAMA_NO_AMX=1. The container will be unavailable for a few seconds. Continue?')) return;
+
+  btn.disabled = true;
+  btn.textContent = '⟳ Restarting…';
+
+  try {
+    await api('POST', '/api/admin/ollama/restart-no-amx');
+    toast('Ollama restarted with OLLAMA_NO_AMX=1', 'success');
+    result.innerHTML += '<div style="margin-top:8px;font-size:12px;color:var(--green)">✓ Ollama restarted. Run Check again to confirm, then retry your model query.</div>';
+    btn.style.display = 'none';
+  } catch (e) {
+    toast('Failed: ' + e.message, 'error');
+    btn.disabled = false;
+    btn.textContent = '⚡ Apply Fix (OLLAMA_NO_AMX=1)';
+  }
+}
+
 function escHtml(str) {
   return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }

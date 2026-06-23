@@ -515,4 +515,64 @@ router.post('/addons/:id/remove', (req, res) => {
   setImmediate(() => runAddonOp(id, 'remove'));
 });
 
+// ── Ollama CPU diagnostics ────────────────────────────────────────────────────
+
+// GET /api/admin/ollama/cpu-check
+// Runs a CPU flag grep inside the ollama container and checks whether the
+// OLLAMA_NO_AMX env var is already applied.
+router.get('/ollama/cpu-check', async (_req, res) => {
+  try {
+    const container = docker.getContainer('ollama');
+    await container.inspect();
+  } catch {
+    return res.json({ containerFound: false, flags: [], hasAmx: false, noAmxSet: false });
+  }
+
+  try {
+    const raw = await dockerExecCollect('ollama', [
+      'sh', '-c',
+      "grep -oE 'amx[^ ]+|avx[^ ]+' /proc/cpuinfo 2>/dev/null | sort -u || echo ''"
+    ]);
+    const flags = raw.trim().split('\n').map((f: string) => f.trim()).filter(Boolean);
+    const hasAmx = flags.some((f: string) => f.startsWith('amx'));
+
+    const info = await docker.getContainer('ollama').inspect();
+    const env: string[] = info.Config.Env || [];
+    const noAmxSet = env.some((e: string) => e === 'OLLAMA_NO_AMX=1');
+
+    res.json({ containerFound: true, flags, hasAmx, noAmxSet });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/ollama/restart-no-amx
+// Recreates the ollama container with OLLAMA_NO_AMX=1 added to its environment.
+// This is the recommended fix when Ollama segfaults due to AMX instruction incompatibility.
+router.post('/ollama/restart-no-amx', async (_req, res) => {
+  try {
+    const container = docker.getContainer('ollama');
+    const info = await container.inspect();
+
+    const env: string[] = (info.Config.Env || []).filter((e: string) => !e.startsWith('OLLAMA_NO_AMX='));
+    env.push('OLLAMA_NO_AMX=1');
+
+    if (info.State.Running) await container.stop({ t: 15 });
+    await container.remove();
+
+    const newContainer = await docker.createContainer({
+      name:    'ollama',
+      Image:   info.Config.Image,
+      Env:     env,
+      HostConfig:       info.HostConfig,
+      NetworkingConfig: { EndpointsConfig: info.NetworkSettings.Networks },
+    });
+    await newContainer.start();
+
+    res.json({ message: 'Ollama restarted with OLLAMA_NO_AMX=1' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;
