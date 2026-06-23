@@ -518,8 +518,14 @@ router.post('/addons/:id/remove', (req, res) => {
 // ── Ollama CPU diagnostics ────────────────────────────────────────────────────
 
 // Shared helper: stop, remove and recreate the ollama container.
-// envOverrides: keys to set (value) or clear (null). newImage: optional image override.
-async function recreateOllama(envOverrides: Record<string, string | null>, newImage?: string): Promise<void> {
+// envOverrides: keys to set (value) or clear (null).
+// newImage: optional image tag override.
+// hostConfigOverrides: merged on top of the existing HostConfig (e.g. { Memory: bytes }).
+async function recreateOllama(
+  envOverrides: Record<string, string | null>,
+  newImage?: string,
+  hostConfigOverrides?: Record<string, any>,
+): Promise<void> {
   const container = docker.getContainer('ollama');
   const info = await container.inspect();
 
@@ -536,10 +542,17 @@ async function recreateOllama(envOverrides: Record<string, string | null>, newIm
     name:    'ollama',
     Image:   newImage || info.Config.Image,
     Env:     env,
-    HostConfig:       info.HostConfig,
+    HostConfig:       { ...info.HostConfig, ...(hostConfigOverrides || {}) },
     NetworkingConfig: { EndpointsConfig: info.NetworkSettings.Networks },
   });
   await newContainer.start();
+}
+
+function parseMemoryBytes(mem: string): number {
+  const m = mem.trim().toLowerCase().match(/^(\d+(?:\.\d+)?)\s*(g|m|k)?b?$/);
+  if (!m) throw new Error(`Invalid memory value: "${mem}". Use formats like 8g, 512m, 0 (unlimited).`);
+  const multipliers: Record<string, number> = { g: 1024 ** 3, m: 1024 ** 2, k: 1024, '': 1 };
+  return Math.floor(parseFloat(m[1]) * (multipliers[m[2] || ''] ?? 1));
 }
 
 // GET /api/admin/ollama/cpu-check
@@ -564,8 +577,9 @@ router.get('/ollama/cpu-check', async (_req, res) => {
     const noGgmlAmxSet  = env.some((e: string) => e === 'GGML_NO_AMX=1');
     const avx2OnlySet   = env.some((e: string) => e === 'OLLAMA_CPU_FEATURES=avx2');
     const avx2RunnerSet = env.some((e: string) => e === 'OLLAMA_LLM_LIBRARY=cpu_avx2');
+    const memoryBytes   = (info.HostConfig as any).Memory ?? 0; // 0 = unlimited
 
-    res.json({ containerFound: true, flags, hasAmx, noAmxSet, noGgmlAmxSet, avx2OnlySet, avx2RunnerSet });
+    res.json({ containerFound: true, flags, hasAmx, noAmxSet, noGgmlAmxSet, avx2OnlySet, avx2RunnerSet, memoryBytes });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -623,6 +637,20 @@ router.post('/ollama/restart-avx2-runner', async (_req, res) => {
     res.json({ message: 'Ollama restarted with OLLAMA_LLM_LIBRARY=cpu_avx2' });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/ollama/set-memory  body: { memory: "16g" | "0" }
+// Recreates the Ollama container with a hard memory limit (0 = unlimited).
+router.post('/ollama/set-memory', async (req, res) => {
+  const raw = (req.body?.memory ?? '0').toString();
+  try {
+    const bytes = parseMemoryBytes(raw);
+    await recreateOllama({}, undefined, { Memory: bytes });
+    const label = bytes === 0 ? 'unlimited' : raw;
+    res.json({ message: `Ollama restarted with memory limit: ${label}` });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
   }
 });
 

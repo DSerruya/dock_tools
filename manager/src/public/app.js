@@ -1587,6 +1587,7 @@ async function ollamaCpuCheck() {
   btn.disabled = true;
   btn.textContent = '⟳ Checking…';
   result.innerHTML = '';
+  document.getElementById('ollama-mem-row').style.display = 'none';
   [updateBtn, fixBtn, ggmlFixBtn, bothFixBtn, avx2FixBtn, avx2RunnerBtn].forEach(b => { b.style.display = 'none'; });
 
   try {
@@ -1630,6 +1631,20 @@ async function ollamaCpuCheck() {
     } else {
       guidance = `<div style="margin-top:8px;font-size:12px;color:var(--green)">✓ No AMX features detected — CPU compatibility looks fine.</div>`;
     }
+
+    // Memory limit row — always shown once container is found
+    const gb = 1024 ** 3;
+    const memLabel = data.memoryBytes === 0 ? 'unlimited' : `${Math.round(data.memoryBytes / gb)} GB`;
+    document.getElementById('ollama-mem-current').textContent = memLabel;
+    const sel = document.getElementById('ollama-mem-select');
+    const knownVals = ['0', '8g', '12g', '16g', '24g', '32g'];
+    const memKey = data.memoryBytes === 0 ? '0' : `${Math.round(data.memoryBytes / gb)}g`;
+    sel.value = knownVals.includes(memKey) ? memKey : 'custom';
+    if (sel.value === 'custom') {
+      document.getElementById('ollama-mem-custom').style.display = '';
+      document.getElementById('ollama-mem-custom').value = memKey;
+    }
+    document.getElementById('ollama-mem-row').style.display = 'flex';
 
     result.innerHTML = `<div style="margin-bottom:6px;font-size:12px;color:var(--muted)">CPU flags:</div>${flagsHtml}${envLine}${guidance}`;
   } catch (e) {
@@ -1676,6 +1691,27 @@ async function ollamaApplyAvx2Fix() {
 
 async function ollamaApplyAvx2Runner() {
   await _ollamaRestartAction('/api/admin/ollama/restart-avx2-runner', 'OLLAMA_LLM_LIBRARY=cpu_avx2', 'ollama-avx2-runner-btn', '⚡ Fix: AVX2 runner');
+}
+
+function ollamaMemSelectChanged() {
+  const sel    = document.getElementById('ollama-mem-select');
+  const custom = document.getElementById('ollama-mem-custom');
+  custom.style.display = sel.value === 'custom' ? '' : 'none';
+}
+
+async function ollamaSetMemory() {
+  const sel    = document.getElementById('ollama-mem-select');
+  const custom = document.getElementById('ollama-mem-custom');
+  const memory = sel.value === 'custom' ? custom.value.trim() : sel.value;
+  if (!memory) { toast('Enter a memory value', 'error'); return; }
+  if (!confirm(`Recreate Ollama container with memory limit: ${memory === '0' ? 'unlimited' : memory}?`)) return;
+  try {
+    const res = await api('POST', '/api/admin/ollama/set-memory', { memory });
+    toast(res.message, 'success');
+    document.getElementById('ollama-mem-current').textContent = memory === '0' ? 'unlimited' : memory;
+  } catch (e) {
+    toast('Failed: ' + e.message, 'error');
+  }
 }
 
 async function ollamaUpdate() {

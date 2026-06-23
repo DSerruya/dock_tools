@@ -492,6 +492,21 @@
         <button class="btn btn-primary btn-sm" id="ollama-avx2-fix-btn" style="display:none" onclick="ollamaApplyAvx2Fix()" title="Cap CPU instruction set to AVX2 only, skipping AMX and AVX-512">⚡ Fix: AVX2 only</button>
         <button class="btn btn-primary btn-sm" id="ollama-avx2-runner-btn" style="display:none" onclick="ollamaApplyAvx2Runner()" title="Force the AVX2 CPU runner instead of auto-detecting AMX">⚡ Fix: AVX2 runner</button>
       </div>
+      <div id="ollama-mem-row" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);display:none;align-items:center;gap:8px;flex-wrap:wrap">
+        <span style="font-size:12px;color:var(--muted)">Memory limit:</span>
+        <span id="ollama-mem-current" style="font-size:12px;color:var(--accent)"></span>
+        <select id="ollama-mem-select" class="input" style="width:auto;padding:4px 8px;font-size:12px" onchange="ollamaMemSelectChanged()">
+          <option value="0">Unlimited</option>
+          <option value="8g">8 GB</option>
+          <option value="12g">12 GB</option>
+          <option value="16g">16 GB</option>
+          <option value="24g">24 GB</option>
+          <option value="32g">32 GB</option>
+          <option value="custom">Custom…</option>
+        </select>
+        <input id="ollama-mem-custom" type="text" class="input" placeholder="e.g. 20g" style="display:none;width:90px;padding:4px 8px;font-size:12px" />
+        <button class="btn btn-ghost btn-sm" onclick="ollamaSetMemory()">Apply</button>
+      </div>
     </div>
 
     <div class="table-toolbar">
