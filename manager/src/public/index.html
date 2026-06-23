@@ -478,14 +478,14 @@
 
     <!-- Ollama CPU Troubleshooting card -->
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:24px">
-      <div style="font-size:14px;font-weight:600;margin-bottom:4px">🧠 Ollama CPU Compatibility <span style="font-size:11px;font-weight:400;color:var(--muted);margin-left:6px">v0.5.13</span></div>
+      <div style="font-size:14px;font-weight:600;margin-bottom:4px">🧠 Ollama CPU Compatibility</div>
       <div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5">
-        If Ollama models (llama3, gemma3) are segfaulting due to AMX instruction issues, use the tools below to diagnose and fix. Pinned to <code>ollama/ollama:0.5.13</code> to avoid a kernel bug in newer releases.
+        If Ollama models (llama3, gemma3) are segfaulting due to AMX instruction issues, use the tools below to diagnose and fix.
       </div>
       <div id="ollama-cpu-result" style="margin-bottom:12px"></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <button class="btn btn-ghost btn-sm" onclick="ollamaCpuCheck()" id="ollama-cpu-btn">🔍 Check CPU Flags</button>
-        <button class="btn btn-ghost btn-sm" id="ollama-update-btn" style="display:none" onclick="ollamaUpdate()" title="Pull ollama/ollama:0.5.13 and recreate the container">⬆ Repull 0.5.13</button>
+        <button class="btn btn-ghost btn-sm" id="ollama-update-btn" style="display:none" onclick="ollamaUpdate()" title="Pull ollama/ollama:latest and recreate the container">⬆ Update Ollama</button>
         <button class="btn btn-primary btn-sm" id="ollama-fix-btn" style="display:none" onclick="ollamaApplyAmxFix()" title="Crash on Ollama startup — CPU doesn't fully support AMX">⚡ Fix: OLLAMA_NO_AMX=1</button>
         <button class="btn btn-primary btn-sm" id="ollama-ggml-fix-btn" style="display:none" onclick="ollamaApplyGgmlAmxFix()" title="Crash when querying a model — CPU supports AMX but hits GGML init bug">⚡ Fix: GGML_NO_AMX=1</button>
         <button class="btn btn-primary btn-sm" id="ollama-both-fix-btn" style="display:none" onclick="ollamaApplyBothAmxFix()" title="Not sure when it crashes — apply both fixes at once">⚡ Fix: Both AMX flags</button>

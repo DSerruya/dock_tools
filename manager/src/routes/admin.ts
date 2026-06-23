@@ -678,17 +678,17 @@ router.post('/ollama/set-memory', async (req, res) => {
 });
 
 // POST /api/admin/ollama/update
-// Pulls ollama/ollama:0.5.13 and recreates the container with it.
+// Pulls the latest ollama/ollama image and recreates the container with it.
 router.post('/ollama/update', async (_req, res) => {
   try {
     await new Promise<void>((resolve, reject) => {
-      docker.pull('ollama/ollama:0.5.13', (err: Error | null, stream: NodeJS.ReadableStream) => {
+      docker.pull('ollama/ollama:latest', (err: Error | null, stream: NodeJS.ReadableStream) => {
         if (err) return reject(err);
         docker.modem.followProgress(stream, (e: Error | null) => e ? reject(e) : resolve());
       });
     });
-    await recreateOllama({}, 'ollama/ollama:0.5.13');
-    res.json({ message: 'Ollama repulled to 0.5.13 and restarted' });
+    await recreateOllama({}, 'ollama/ollama:latest');
+    res.json({ message: 'Ollama updated to latest and restarted' });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

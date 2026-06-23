@@ -1717,19 +1717,19 @@ async function ollamaSetMemory() {
 async function ollamaUpdate() {
   const btn    = document.getElementById('ollama-update-btn');
   const result = document.getElementById('ollama-cpu-result');
-  if (!confirm('This will pull ollama/ollama:0.5.13 and recreate the container. It may take a minute to download. Continue?')) return;
+  if (!confirm('This will pull ollama/ollama:latest and recreate the container. It may take a minute to download. Continue?')) return;
   btn.disabled = true;
-  btn.textContent = '⟳ Repulling…';
+  btn.textContent = '⟳ Updating…';
   try {
     await api('POST', '/api/admin/ollama/update');
-    toast('Ollama repulled to 0.5.13 and restarted', 'success');
-    result.innerHTML += '<div style="margin-top:8px;font-size:12px;color:var(--green)">✓ Ollama repulled to 0.5.13. Retry your model query — if it still segfaults, apply one of the env var fixes below.</div>';
+    toast('Ollama updated to latest and restarted', 'success');
+    result.innerHTML += '<div style="margin-top:8px;font-size:12px;color:var(--green)">✓ Ollama updated. Retry your model query — if it still segfaults, apply one of the env var fixes below.</div>';
     btn.disabled = false;
-    btn.textContent = '⬆ Repull 0.5.13';
+    btn.textContent = '⬆ Update Ollama';
   } catch (e) {
     toast('Failed: ' + e.message, 'error');
     btn.disabled = false;
-    btn.textContent = '⬆ Repull 0.5.13';
+    btn.textContent = '⬆ Update Ollama';
   }
 }
 
