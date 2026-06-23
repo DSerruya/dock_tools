@@ -44,6 +44,7 @@ services:
       - OLLAMA_NO_AMX=1
       - GGML_NO_AMX=1
       - OLLAMA_LLM_LIBRARY=cpu_avx2
+      - OLLAMA_FLASH_ATTENTION=0
     volumes:
       - ollama_models:/root/.ollama
     healthcheck:
