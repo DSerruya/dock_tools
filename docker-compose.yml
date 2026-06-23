@@ -38,7 +38,7 @@ services:
       - script-network
 
   ollama:
-    image: ollama/ollama:latest
+    image: ollama/ollama:0.5.13
     container_name: ollama
     volumes:
       - ollama_models:/root/.ollama
