@@ -480,13 +480,14 @@
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:24px">
       <div style="font-size:14px;font-weight:600;margin-bottom:4px">🧠 Ollama CPU Compatibility</div>
       <div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5">
-        If Ollama models (llama3, gemma3) are segfaulting, the CPU may not support Intel AMX instructions.
-        Check your CPU flags below and apply the fix if AMX features are detected.
+        If Ollama models (llama3, gemma3) are segfaulting due to AMX instruction issues, use the tools below to diagnose and fix.
       </div>
       <div id="ollama-cpu-result" style="margin-bottom:12px"></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <button class="btn btn-ghost btn-sm" onclick="ollamaCpuCheck()" id="ollama-cpu-btn">🔍 Check CPU Flags</button>
-        <button class="btn btn-primary btn-sm" id="ollama-fix-btn" style="display:none" onclick="ollamaApplyAmxFix()">⚡ Apply Fix (OLLAMA_NO_AMX=1)</button>
+        <button class="btn btn-ghost btn-sm" id="ollama-update-btn" style="display:none" onclick="ollamaUpdate()" title="Pull ollama/ollama:latest and recreate the container">⬆ Update Ollama</button>
+        <button class="btn btn-primary btn-sm" id="ollama-fix-btn" style="display:none" onclick="ollamaApplyAmxFix()" title="For CPUs that don't fully support AMX">⚡ Fix: OLLAMA_NO_AMX=1</button>
+        <button class="btn btn-primary btn-sm" id="ollama-ggml-fix-btn" style="display:none" onclick="ollamaApplyGgmlAmxFix()" title="For CPUs that support AMX but hit Ollama's GGML init bug">⚡ Fix: GGML_NO_AMX=1</button>
       </div>
     </div>
 

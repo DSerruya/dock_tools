@@ -1575,13 +1575,16 @@ async function removeAddon(id) {
 
 /* ── Ollama CPU diagnostics ──────────────────────────────────────────────── */
 async function ollamaCpuCheck() {
-  const btn    = document.getElementById('ollama-cpu-btn');
-  const result = document.getElementById('ollama-cpu-result');
-  const fixBtn = document.getElementById('ollama-fix-btn');
+  const btn          = document.getElementById('ollama-cpu-btn');
+  const result       = document.getElementById('ollama-cpu-result');
+  const updateBtn    = document.getElementById('ollama-update-btn');
+  const fixBtn       = document.getElementById('ollama-fix-btn');
+  const ggmlFixBtn   = document.getElementById('ollama-ggml-fix-btn');
+
   btn.disabled = true;
   btn.textContent = '⟳ Checking…';
   result.innerHTML = '';
-  fixBtn.style.display = 'none';
+  [updateBtn, fixBtn, ggmlFixBtn].forEach(b => { b.style.display = 'none'; });
 
   try {
     const data = await api('GET', '/api/admin/ollama/cpu-check');
@@ -1598,18 +1601,29 @@ async function ollamaCpuCheck() {
         }).join('')
       : '<span style="font-size:12px;color:var(--muted)">No AMX/AVX flags found</span>';
 
-    const amxWarning = data.hasAmx
-      ? `<div style="margin-top:8px;padding:8px 10px;background:#2d1212;border:1px solid #7f1d1d;border-radius:6px;font-size:12px;color:#fca5a5;line-height:1.5">
-           ⚠ AMX instructions detected — this may cause segfaults in llama3 / gemma3:12b.<br>
-           ${data.noAmxSet
-             ? 'Click <strong>Apply Fix</strong> to restart Ollama with <code>OLLAMA_NO_AMX=1</code>.'
-             : '✓ Fix already applied (<code>OLLAMA_NO_AMX=1</code> is set). To make it permanent, add it to your <code>.env</code> file.'}
-         </div>`
-      : `<div style="margin-top:8px;font-size:12px;color:var(--green)">✓ No AMX features detected — CPU compatibility looks fine.</div>`;
+    let envStatus = '';
+    if (data.noAmxSet)     envStatus += '<code style="font-size:11px;color:var(--green)">OLLAMA_NO_AMX=1</code> ';
+    if (data.noGgmlAmxSet) envStatus += '<code style="font-size:11px;color:var(--green)">GGML_NO_AMX=1</code>';
+    const envLine = envStatus
+      ? `<div style="margin-top:6px;font-size:12px;color:var(--muted)">Active fixes: ${envStatus}</div>`
+      : '';
 
-    result.innerHTML = `<div style="margin-bottom:6px;font-size:12px;color:var(--muted)">CPU flags:</div>${flagsHtml}${amxWarning}`;
+    let guidance = '';
+    if (data.hasAmx) {
+      guidance = `<div style="margin-top:8px;padding:8px 10px;background:#1a1a0d;border:1px solid #713f12;border-radius:6px;font-size:12px;color:#fde68a;line-height:1.6">
+        ⚠ AMX instructions detected — likely cause of segfaults in llama3 / gemma3:12b.<br>
+        <strong>Step 1:</strong> Try updating Ollama to the latest version (⬆ Update Ollama).<br>
+        <strong>Step 2:</strong> If still segfaulting and CPU supports AMX → apply <code>GGML_NO_AMX=1</code>.<br>
+        <strong>Step 3:</strong> If CPU doesn't fully support AMX → apply <code>OLLAMA_NO_AMX=1</code>.
+      </div>`;
+      updateBtn.style.display = '';
+      if (!data.noAmxSet)     fixBtn.style.display = '';
+      if (!data.noGgmlAmxSet) ggmlFixBtn.style.display = '';
+    } else {
+      guidance = `<div style="margin-top:8px;font-size:12px;color:var(--green)">✓ No AMX features detected — CPU compatibility looks fine.</div>`;
+    }
 
-    if (data.hasAmx && !data.noAmxSet) fixBtn.style.display = '';
+    result.innerHTML = `<div style="margin-bottom:6px;font-size:12px;color:var(--muted)">CPU flags:</div>${flagsHtml}${envLine}${guidance}`;
   } catch (e) {
     result.innerHTML = `<span style="font-size:12px;color:var(--red)">Error: ${escHtml(e.message)}</span>`;
   } finally {
@@ -1618,23 +1632,48 @@ async function ollamaCpuCheck() {
   }
 }
 
-async function ollamaApplyAmxFix() {
-  const btn    = document.getElementById('ollama-fix-btn');
+async function _ollamaRestartAction(endpoint, envVar, btnId, label) {
+  const btn    = document.getElementById(btnId);
   const result = document.getElementById('ollama-cpu-result');
-  if (!confirm('This will stop, remove, and recreate the Ollama container with OLLAMA_NO_AMX=1. The container will be unavailable for a few seconds. Continue?')) return;
-
+  if (!confirm(`This will stop, remove, and recreate the Ollama container with ${envVar}. It will be unavailable for a few seconds. Continue?`)) return;
   btn.disabled = true;
   btn.textContent = '⟳ Restarting…';
-
   try {
-    await api('POST', '/api/admin/ollama/restart-no-amx');
-    toast('Ollama restarted with OLLAMA_NO_AMX=1', 'success');
-    result.innerHTML += '<div style="margin-top:8px;font-size:12px;color:var(--green)">✓ Ollama restarted. Run Check again to confirm, then retry your model query.</div>';
+    await api('POST', endpoint);
+    toast(`Ollama restarted with ${envVar}`, 'success');
+    result.innerHTML += `<div style="margin-top:8px;font-size:12px;color:var(--green)">✓ Done. Run Check again to confirm, then retry your model query. To make it permanent add <code>${envVar}</code> to your <code>.env</code>.</div>`;
     btn.style.display = 'none';
   } catch (e) {
     toast('Failed: ' + e.message, 'error');
     btn.disabled = false;
-    btn.textContent = '⚡ Apply Fix (OLLAMA_NO_AMX=1)';
+    btn.textContent = label;
+  }
+}
+
+async function ollamaApplyAmxFix() {
+  await _ollamaRestartAction('/api/admin/ollama/restart-no-amx', 'OLLAMA_NO_AMX=1', 'ollama-fix-btn', '⚡ Fix: OLLAMA_NO_AMX=1');
+}
+
+async function ollamaApplyGgmlAmxFix() {
+  await _ollamaRestartAction('/api/admin/ollama/restart-no-ggml-amx', 'GGML_NO_AMX=1', 'ollama-ggml-fix-btn', '⚡ Fix: GGML_NO_AMX=1');
+}
+
+async function ollamaUpdate() {
+  const btn    = document.getElementById('ollama-update-btn');
+  const result = document.getElementById('ollama-cpu-result');
+  if (!confirm('This will pull ollama/ollama:latest and recreate the container. It may take a minute to download. Continue?')) return;
+  btn.disabled = true;
+  btn.textContent = '⟳ Updating…';
+  try {
+    await api('POST', '/api/admin/ollama/update');
+    toast('Ollama updated to latest and restarted', 'success');
+    result.innerHTML += '<div style="margin-top:8px;font-size:12px;color:var(--green)">✓ Ollama updated. Retry your model query — if it still segfaults, apply one of the env var fixes below.</div>';
+    btn.disabled = false;
+    btn.textContent = '⬆ Update Ollama';
+  } catch (e) {
+    toast('Failed: ' + e.message, 'error');
+    btn.disabled = false;
+    btn.textContent = '⬆ Update Ollama';
   }
 }
 

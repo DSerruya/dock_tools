@@ -517,15 +517,37 @@ router.post('/addons/:id/remove', (req, res) => {
 
 // ── Ollama CPU diagnostics ────────────────────────────────────────────────────
 
+// Shared helper: stop, remove and recreate the ollama container.
+// envOverrides: keys to set (value) or clear (null). newImage: optional image override.
+async function recreateOllama(envOverrides: Record<string, string | null>, newImage?: string): Promise<void> {
+  const container = docker.getContainer('ollama');
+  const info = await container.inspect();
+
+  let env: string[] = info.Config.Env || [];
+  for (const [key, val] of Object.entries(envOverrides)) {
+    env = env.filter((e: string) => !e.startsWith(`${key}=`));
+    if (val !== null) env.push(`${key}=${val}`);
+  }
+
+  if (info.State.Running) await container.stop({ t: 15 });
+  await container.remove();
+
+  const newContainer = await docker.createContainer({
+    name:    'ollama',
+    Image:   newImage || info.Config.Image,
+    Env:     env,
+    HostConfig:       info.HostConfig,
+    NetworkingConfig: { EndpointsConfig: info.NetworkSettings.Networks },
+  });
+  await newContainer.start();
+}
+
 // GET /api/admin/ollama/cpu-check
-// Runs a CPU flag grep inside the ollama container and checks whether the
-// OLLAMA_NO_AMX env var is already applied.
 router.get('/ollama/cpu-check', async (_req, res) => {
   try {
-    const container = docker.getContainer('ollama');
-    await container.inspect();
+    await docker.getContainer('ollama').inspect();
   } catch {
-    return res.json({ containerFound: false, flags: [], hasAmx: false, noAmxSet: false });
+    return res.json({ containerFound: false, flags: [], hasAmx: false, noAmxSet: false, noGgmlAmxSet: false });
   }
 
   try {
@@ -538,38 +560,49 @@ router.get('/ollama/cpu-check', async (_req, res) => {
 
     const info = await docker.getContainer('ollama').inspect();
     const env: string[] = info.Config.Env || [];
-    const noAmxSet = env.some((e: string) => e === 'OLLAMA_NO_AMX=1');
+    const noAmxSet     = env.some((e: string) => e === 'OLLAMA_NO_AMX=1');
+    const noGgmlAmxSet = env.some((e: string) => e === 'GGML_NO_AMX=1');
 
-    res.json({ containerFound: true, flags, hasAmx, noAmxSet });
+    res.json({ containerFound: true, flags, hasAmx, noAmxSet, noGgmlAmxSet });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // POST /api/admin/ollama/restart-no-amx
-// Recreates the ollama container with OLLAMA_NO_AMX=1 added to its environment.
-// This is the recommended fix when Ollama segfaults due to AMX instruction incompatibility.
+// Fix for CPUs that don't fully support AMX instructions.
 router.post('/ollama/restart-no-amx', async (_req, res) => {
   try {
-    const container = docker.getContainer('ollama');
-    const info = await container.inspect();
-
-    const env: string[] = (info.Config.Env || []).filter((e: string) => !e.startsWith('OLLAMA_NO_AMX='));
-    env.push('OLLAMA_NO_AMX=1');
-
-    if (info.State.Running) await container.stop({ t: 15 });
-    await container.remove();
-
-    const newContainer = await docker.createContainer({
-      name:    'ollama',
-      Image:   info.Config.Image,
-      Env:     env,
-      HostConfig:       info.HostConfig,
-      NetworkingConfig: { EndpointsConfig: info.NetworkSettings.Networks },
-    });
-    await newContainer.start();
-
+    await recreateOllama({ OLLAMA_NO_AMX: '1' });
     res.json({ message: 'Ollama restarted with OLLAMA_NO_AMX=1' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/ollama/restart-no-ggml-amx
+// Fix for CPUs that support AMX but hit Ollama's GGML AMX initialization bug.
+router.post('/ollama/restart-no-ggml-amx', async (_req, res) => {
+  try {
+    await recreateOllama({ GGML_NO_AMX: '1' });
+    res.json({ message: 'Ollama restarted with GGML_NO_AMX=1' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/ollama/update
+// Pulls the latest ollama/ollama image and recreates the container with it.
+router.post('/ollama/update', async (_req, res) => {
+  try {
+    await new Promise<void>((resolve, reject) => {
+      docker.pull('ollama/ollama:latest', (err: Error | null, stream: NodeJS.ReadableStream) => {
+        if (err) return reject(err);
+        docker.modem.followProgress(stream, (e: Error | null) => e ? reject(e) : resolve());
+      });
+    });
+    await recreateOllama({}, 'ollama/ollama:latest');
+    res.json({ message: 'Ollama updated to latest and restarted' });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
