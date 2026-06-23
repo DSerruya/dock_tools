@@ -486,8 +486,9 @@
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <button class="btn btn-ghost btn-sm" onclick="ollamaCpuCheck()" id="ollama-cpu-btn">🔍 Check CPU Flags</button>
         <button class="btn btn-ghost btn-sm" id="ollama-update-btn" style="display:none" onclick="ollamaUpdate()" title="Pull ollama/ollama:latest and recreate the container">⬆ Update Ollama</button>
-        <button class="btn btn-primary btn-sm" id="ollama-fix-btn" style="display:none" onclick="ollamaApplyAmxFix()" title="For CPUs that don't fully support AMX">⚡ Fix: OLLAMA_NO_AMX=1</button>
-        <button class="btn btn-primary btn-sm" id="ollama-ggml-fix-btn" style="display:none" onclick="ollamaApplyGgmlAmxFix()" title="For CPUs that support AMX but hit Ollama's GGML init bug">⚡ Fix: GGML_NO_AMX=1</button>
+        <button class="btn btn-primary btn-sm" id="ollama-fix-btn" style="display:none" onclick="ollamaApplyAmxFix()" title="Crash on Ollama startup — CPU doesn't fully support AMX">⚡ Fix: OLLAMA_NO_AMX=1</button>
+        <button class="btn btn-primary btn-sm" id="ollama-ggml-fix-btn" style="display:none" onclick="ollamaApplyGgmlAmxFix()" title="Crash when querying a model — CPU supports AMX but hits GGML init bug">⚡ Fix: GGML_NO_AMX=1</button>
+        <button class="btn btn-primary btn-sm" id="ollama-both-fix-btn" style="display:none" onclick="ollamaApplyBothAmxFix()" title="Not sure when it crashes — apply both fixes at once">⚡ Fix: Both AMX flags</button>
       </div>
     </div>
 

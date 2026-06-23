@@ -591,6 +591,17 @@ router.post('/ollama/restart-no-ggml-amx', async (_req, res) => {
   }
 });
 
+// POST /api/admin/ollama/restart-no-both-amx
+// Sets both OLLAMA_NO_AMX=1 and GGML_NO_AMX=1 — covers both server-init and inference-level AMX issues.
+router.post('/ollama/restart-no-both-amx', async (_req, res) => {
+  try {
+    await recreateOllama({ OLLAMA_NO_AMX: '1', GGML_NO_AMX: '1' });
+    res.json({ message: 'Ollama restarted with OLLAMA_NO_AMX=1 and GGML_NO_AMX=1' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/admin/ollama/update
 // Pulls the latest ollama/ollama image and recreates the container with it.
 router.post('/ollama/update', async (_req, res) => {

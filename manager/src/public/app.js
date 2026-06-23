@@ -1580,11 +1580,12 @@ async function ollamaCpuCheck() {
   const updateBtn    = document.getElementById('ollama-update-btn');
   const fixBtn       = document.getElementById('ollama-fix-btn');
   const ggmlFixBtn   = document.getElementById('ollama-ggml-fix-btn');
+  const bothFixBtn   = document.getElementById('ollama-both-fix-btn');
 
   btn.disabled = true;
   btn.textContent = '⟳ Checking…';
   result.innerHTML = '';
-  [updateBtn, fixBtn, ggmlFixBtn].forEach(b => { b.style.display = 'none'; });
+  [updateBtn, fixBtn, ggmlFixBtn, bothFixBtn].forEach(b => { b.style.display = 'none'; });
 
   try {
     const data = await api('GET', '/api/admin/ollama/cpu-check');
@@ -1619,6 +1620,7 @@ async function ollamaCpuCheck() {
       updateBtn.style.display = '';
       if (!data.noAmxSet)     fixBtn.style.display = '';
       if (!data.noGgmlAmxSet) ggmlFixBtn.style.display = '';
+      if (!data.noAmxSet || !data.noGgmlAmxSet) bothFixBtn.style.display = '';
     } else {
       guidance = `<div style="margin-top:8px;font-size:12px;color:var(--green)">✓ No AMX features detected — CPU compatibility looks fine.</div>`;
     }
@@ -1656,6 +1658,10 @@ async function ollamaApplyAmxFix() {
 
 async function ollamaApplyGgmlAmxFix() {
   await _ollamaRestartAction('/api/admin/ollama/restart-no-ggml-amx', 'GGML_NO_AMX=1', 'ollama-ggml-fix-btn', '⚡ Fix: GGML_NO_AMX=1');
+}
+
+async function ollamaApplyBothAmxFix() {
+  await _ollamaRestartAction('/api/admin/ollama/restart-no-both-amx', 'OLLAMA_NO_AMX=1 + GGML_NO_AMX=1', 'ollama-both-fix-btn', '⚡ Fix: Both AMX flags');
 }
 
 async function ollamaUpdate() {
