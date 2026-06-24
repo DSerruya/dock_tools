@@ -1582,10 +1582,22 @@ function renderAddons(addons) {
     const availableModels = ollamaAddons.filter(a => !a.installed && a.opStatus !== 'installing');
     const installedModels = ollamaAddons.filter(a => a.installed || a.opStatus === 'installing' || a.opStatus === 'removing' || a.opStatus === 'error');
 
-    const modelOptions = availableModels.map(a => {
-      const label = a.name.replace(/^Ollama\s*[–-]\s*/i, '');
-      return `<option value="${escHtml(a.id)}">${escHtml(label)}</option>`;
-    }).join('');
+    // Group available models by tier; fall back to flat list if no group info
+    const groups = [];
+    const seen   = new Set();
+    availableModels.forEach(a => { if (a.group && !seen.has(a.group)) { seen.add(a.group); groups.push(a.group); } });
+    const modelOptions = groups.length
+      ? groups.map(g => {
+          const opts = availableModels
+            .filter(a => a.group === g)
+            .map(a => `<option value="${escHtml(a.id)}">${escHtml(a.name.replace(/^Ollama\s*[–-]\s*/i, ''))}</option>`)
+            .join('');
+          return `<optgroup label="${escHtml(g)}">${opts}</optgroup>`;
+        }).join('')
+      : availableModels.map(a => {
+          const label = a.name.replace(/^Ollama\s*[–-]\s*/i, '');
+          return `<option value="${escHtml(a.id)}">${escHtml(label)}</option>`;
+        }).join('');
 
     const selectDisabled = !containerFound || anyBusy || !availableModels.length ? 'disabled' : '';
     const installDisabled = !containerFound || anyBusy || !availableModels.length ? 'disabled' : '';
