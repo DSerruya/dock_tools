@@ -9,6 +9,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./scripts-data:/app/scripts-data
+      - ./docker-compose.yml:/app/docker-compose.yml
     environment:
       - NODE_ENV=production
       - WEBHOOK_SECRET=${WEBHOOK_SECRET}

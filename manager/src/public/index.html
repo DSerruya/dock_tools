@@ -476,6 +476,25 @@
       </div>
     </div>
 
+    <!-- Ollama Version Pin card -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:24px">
+      <div style="font-size:14px;font-weight:600;margin-bottom:4px">📌 Ollama Version</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5">
+        Pin the Ollama image version in <code>docker-compose.yml</code>. <em>Save &amp; Apply</em> also recreates the container immediately.
+      </div>
+      <div style="font-size:12px;margin-bottom:12px;display:flex;gap:16px;flex-wrap:wrap">
+        <span>Compose: <span id="ov-compose" style="font-family:monospace;color:var(--accent)">—</span></span>
+        <span>Running: <span id="ov-running" style="font-family:monospace;color:var(--accent)">—</span></span>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <label style="font-size:12px;color:var(--muted)">Version:</label>
+        <input id="ov-version" type="text" class="input" placeholder="e.g. 0.25.0 or latest" style="width:160px;padding:4px 8px;font-size:12px" />
+        <button class="btn btn-ghost btn-sm" onclick="ovSave(false)">💾 Save to Compose</button>
+        <button class="btn btn-primary btn-sm" onclick="ovSave(true)">🚀 Save &amp; Apply</button>
+      </div>
+      <div id="ov-msg" style="margin-top:8px;font-size:12px;min-height:16px"></div>
+    </div>
+
     <!-- Ollama CPU Troubleshooting card -->
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:24px">
       <div style="font-size:14px;font-weight:600;margin-bottom:4px">🧠 Ollama CPU Compatibility</div>

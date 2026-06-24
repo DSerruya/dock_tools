@@ -85,7 +85,7 @@ function showTab(tab) {
   if (tab === 'scripts')    loadScripts();
   else if (tab === 'logs')  loadLogs();
   else if (tab === 'audit') loadAudit();
-  else if (tab === 'admin') { loadUsers(); loadSystemVersion(); loadAddons(); vtInit(); }
+  else if (tab === 'admin') { loadUsers(); loadSystemVersion(); loadAddons(); vtInit(); ovLoad(); }
 }
 
 /* ── Role helpers ──────────────────────────────────────────────────────────── */
@@ -1571,6 +1571,42 @@ async function removeAddon(id) {
     await api('POST', `/api/admin/addons/${id}/remove`);
     await loadAddons();
   } catch (e) { alert('Remove failed: ' + e.message); }
+}
+
+/* ── Ollama Version Pin ──────────────────────────────────────────────────── */
+
+async function ovLoad() {
+  try {
+    const d = await api('GET', '/api/admin/ollama/compose-version');
+    document.getElementById('ov-compose').textContent = d.composeImage || '—';
+    document.getElementById('ov-running').textContent = d.runningImage || '—';
+    if (d.composeImage) {
+      const ver = d.composeImage.replace('ollama/ollama:', '');
+      document.getElementById('ov-version').placeholder = ver;
+    }
+    if (!d.composeAccessible) {
+      document.getElementById('ov-msg').textContent = '⚠ docker-compose.yml not mounted — save disabled.';
+      document.getElementById('ov-msg').style.color = '#f59e0b';
+    }
+  } catch {}
+}
+
+async function ovSave(apply) {
+  const version = document.getElementById('ov-version').value.trim();
+  if (!version) { toast('Enter a version (e.g. 0.25.0 or latest)', 'error'); return; }
+  const msg = document.getElementById('ov-msg');
+  msg.textContent = apply ? 'Pulling and applying…' : 'Saving…';
+  msg.style.color = 'var(--muted)';
+  try {
+    const r = await api('POST', '/api/admin/ollama/compose-version', { version, apply });
+    msg.textContent = '✓ ' + r.message;
+    msg.style.color = 'var(--green)';
+    document.getElementById('ov-version').value = '';
+    await ovLoad();
+  } catch (e) {
+    msg.textContent = e.message;
+    msg.style.color = '#ef4444';
+  }
 }
 
 /* ── Ollama Version Tester ───────────────────────────────────────────────── */

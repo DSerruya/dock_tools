@@ -677,6 +677,60 @@ router.post('/ollama/set-memory', async (req, res) => {
   }
 });
 
+// ── Ollama compose-version pin ────────────────────────────────────────────────
+
+const COMPOSE_FILE = '/app/docker-compose.yml';
+
+function readOllamaImageFromCompose(): string | null {
+  try {
+    const m = fs.readFileSync(COMPOSE_FILE, 'utf8').match(/image:\s*(ollama\/ollama:\S+)/);
+    return m ? m[1] : null;
+  } catch { return null; }
+}
+
+function writeOllamaImageToCompose(version: string): void {
+  const content = fs.readFileSync(COMPOSE_FILE, 'utf8');
+  const updated = content.replace(/^(\s+image:\s*ollama\/ollama:)\S+/m, `$1${version}`);
+  if (updated === content) throw new Error('Pattern not found in docker-compose.yml — nothing changed.');
+  fs.writeFileSync(COMPOSE_FILE, updated, 'utf8');
+}
+
+// GET /api/admin/ollama/compose-version
+router.get('/ollama/compose-version', async (_req, res) => {
+  const composeImage  = readOllamaImageFromCompose();
+  const info          = await docker.getContainer('ollama').inspect().catch(() => null);
+  const runningImage  = info?.Config?.Image || null;
+  res.json({ composeImage, runningImage, composeAccessible: composeImage !== null });
+});
+
+// POST /api/admin/ollama/compose-version  body: { version, apply }
+router.post('/ollama/compose-version', async (req, res) => {
+  const { version, apply } = req.body;
+  if (!version || typeof version !== 'string')
+    return res.status(400).json({ error: 'version is required' });
+  if (!/^[\w.\-]+$/.test(version))
+    return res.status(400).json({ error: 'Invalid version string' });
+
+  const imageTag = `ollama/ollama:${version}`;
+  try { writeOllamaImageToCompose(version); }
+  catch (err: any) { return res.status(500).json({ error: err.message }); }
+
+  if (!apply) return res.json({ message: `docker-compose.yml pinned to ${imageTag}` });
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      docker.pull(imageTag, (err: Error | null, stream: NodeJS.ReadableStream) => {
+        if (err) return reject(err);
+        docker.modem.followProgress(stream, (e: Error | null) => e ? reject(e) : resolve());
+      });
+    });
+    await recreateOllama({}, imageTag);
+    res.json({ message: `Pinned to ${imageTag} and container recreated` });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Ollama Version Tester ─────────────────────────────────────────────────────
 
 const OLLAMA_TEST_VERSIONS = [
