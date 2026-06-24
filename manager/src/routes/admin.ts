@@ -960,15 +960,13 @@ router.get('/system/resources', async (_req, res) => {
     const containerStats = await Promise.all(ctrs.map(async c => {
       const name = (c.Names[0] || '').replace(/^\//, '');
       try {
-        const [stats, info] = await Promise.all([
-          new Promise<any>((resolve, reject) =>
-            docker.getContainer(c.Id).stats({ stream: false } as any, (err: any, data: any) =>
-              err ? reject(err) : resolve(data))),
-          docker.getContainer(c.Id).inspect({ size: true } as any).catch(() => null),
-        ]);
+        const stats: any = await new Promise((resolve, reject) =>
+          (docker.getContainer(c.Id) as any).stats({ stream: false }, (err: any, data: any) =>
+            err ? reject(err) : resolve(data)));
+        const info: any = await (docker.getContainer(c.Id) as any).inspect({ size: true }).catch(() => null);
         const memUsage  = stats?.memory_stats?.usage || 0;
         const memLimit  = stats?.memory_stats?.limit || memTotal;
-        const diskRw    = (info as any)?.SizeRw || 0;
+        const diskRw    = info?.SizeRw || 0;
         return { name, memUsage, memLimit, diskRw };
       } catch {
         return { name, memUsage: 0, memLimit: memTotal, diskRw: 0 };
