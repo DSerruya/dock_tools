@@ -85,7 +85,7 @@ function showTab(tab) {
   if (tab === 'scripts')    loadScripts();
   else if (tab === 'logs')  loadLogs();
   else if (tab === 'audit') loadAudit();
-  else if (tab === 'admin') { loadUsers(); loadSystemVersion(); loadAddons(); }
+  else if (tab === 'admin') { loadUsers(); loadSystemVersion(); loadAddons(); vtInit(); }
 }
 
 /* ── Role helpers ──────────────────────────────────────────────────────────── */
@@ -1571,6 +1571,119 @@ async function removeAddon(id) {
     await api('POST', `/api/admin/addons/${id}/remove`);
     await loadAddons();
   } catch (e) { alert('Remove failed: ' + e.message); }
+}
+
+/* ── Ollama Version Tester ───────────────────────────────────────────────── */
+
+let vtPollTimer   = null;
+let vtInitialized = false;
+
+async function vtInit() {
+  if (vtInitialized) { vtRefresh(); return; }
+  vtInitialized = true;
+  try {
+    const cfg = await api('GET', '/api/admin/ollama/version-test/config');
+    const sel  = document.getElementById('vt-model');
+    sel.innerHTML = cfg.models.map(m => `<option value="${m}">${m}</option>`).join('');
+    const el   = document.getElementById('vt-versions');
+    cfg.versions.forEach((v, i) => {
+      const lbl = document.createElement('label');
+      lbl.style.cssText = 'display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;padding:2px 8px;border:1px solid var(--border);border-radius:4px;white-space:nowrap';
+      lbl.innerHTML = `<input type="checkbox" value="${v}" ${i < 10 ? 'checked' : ''}> ${v}`;
+      el.appendChild(lbl);
+    });
+    vtRefresh();
+  } catch (e) { console.warn('vtInit:', e.message); }
+}
+
+function vtSelectedVersions() {
+  return [...document.querySelectorAll('#vt-versions input:checked')].map(i => i.value);
+}
+function vtSelectAll()  { document.querySelectorAll('#vt-versions input').forEach(i => i.checked = true); }
+function vtSelectNone() { document.querySelectorAll('#vt-versions input').forEach(i => i.checked = false); }
+
+async function vtRun() {
+  const versions = vtSelectedVersions();
+  if (!versions.length) { toast('Select at least one version', 'error'); return; }
+  const model = document.getElementById('vt-model').value;
+  try {
+    await api('POST', '/api/admin/ollama/version-test/run', { versions, model });
+    vtStartPolling();
+  } catch (e) { toast('Failed: ' + e.message, 'error'); }
+}
+
+async function vtStop() {
+  await api('POST', '/api/admin/ollama/version-test/stop').catch(() => {});
+  toast('Stop requested', 'info');
+}
+
+async function vtClean() {
+  if (!confirm('Remove test container, volume and all downloaded test images?')) return;
+  const btn = document.getElementById('vt-clean-btn');
+  btn.disabled = true;
+  try {
+    const r = await api('POST', '/api/admin/ollama/version-test/clean');
+    toast(r.message, 'success');
+  } catch (e) { toast('Failed: ' + e.message, 'error'); }
+  finally { btn.disabled = false; }
+}
+
+async function vtDeleteAllModels() {
+  if (!confirm('Delete ALL models from the Ollama container? This cannot be undone.')) return;
+  try {
+    const r = await api('DELETE', '/api/admin/ollama/models');
+    toast(r.message, 'success');
+  } catch (e) { toast('Failed: ' + e.message, 'error'); }
+}
+
+function vtStartPolling() {
+  if (vtPollTimer) clearInterval(vtPollTimer);
+  vtPollTimer = setInterval(vtRefresh, 2000);
+  vtRefresh();
+}
+function vtStopPolling() {
+  if (vtPollTimer) { clearInterval(vtPollTimer); vtPollTimer = null; }
+}
+
+const VT_STATUS = {
+  pending:       { label: '⏳ Pending',       color: 'var(--muted)' },
+  pulling_image: { label: '⬇ Pulling image',  color: 'var(--accent)' },
+  starting:      { label: '⟳ Starting',       color: 'var(--accent)' },
+  pulling_model: { label: '⬇ Pulling model',  color: 'var(--accent)' },
+  running:       { label: '⟳ Running',        color: 'var(--accent)' },
+  ok:            { label: '✓ OK',             color: 'var(--green)' },
+  too_old:       { label: '⚠ Too old (412)',  color: '#f59e0b' },
+  segfault:      { label: '✗ Segfault',       color: '#ef4444' },
+  skip:          { label: '— Skip',           color: 'var(--muted)' },
+  error:         { label: '✗ Error',          color: '#ef4444' },
+};
+
+async function vtRefresh() {
+  const state = await api('GET', '/api/admin/ollama/version-test/status').catch(() => null);
+  if (!state) return;
+  document.getElementById('vt-run-btn').disabled       = state.running;
+  document.getElementById('vt-stop-btn').style.display = state.running ? '' : 'none';
+  if (!state.running) vtStopPolling();
+  if (!state.results.length) return;
+  document.getElementById('vt-results').style.display = '';
+  const table = document.getElementById('vt-results-table');
+  let html = `<div style="font-size:11px;color:var(--muted);margin-bottom:6px">Model: <strong>${escHtml(state.model)}</strong>${state.running ? ' <span style="color:var(--accent)">⟳ running…</span>' : ''}</div>`;
+  html += '<table style="width:100%;border-collapse:collapse;font-size:12px">'
+        + '<tr style="border-bottom:1px solid var(--border)">'
+        + '<th style="text-align:left;padding:4px 8px;color:var(--muted);font-weight:500">Version</th>'
+        + '<th style="text-align:left;padding:4px 8px;color:var(--muted);font-weight:500">Status</th>'
+        + '<th style="text-align:left;padding:4px 8px;color:var(--muted);font-weight:500">Detail</th>'
+        + '</tr>';
+  for (const r of state.results) {
+    const s = VT_STATUS[r.status] || { label: r.status, color: 'var(--muted)' };
+    html += `<tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:4px 8px;font-family:monospace;white-space:nowrap">${escHtml(r.version)}</td>
+      <td style="padding:4px 8px;color:${s.color};white-space:nowrap">${s.label}</td>
+      <td style="padding:4px 8px;color:var(--muted);max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(r.message || '')}</td>
+    </tr>`;
+  }
+  html += '</table>';
+  table.innerHTML = html;
 }
 
 /* ── Ollama CPU diagnostics ──────────────────────────────────────────────── */

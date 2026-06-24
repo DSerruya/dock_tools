@@ -677,6 +677,188 @@ router.post('/ollama/set-memory', async (req, res) => {
   }
 });
 
+// ── Ollama Version Tester ─────────────────────────────────────────────────────
+
+const OLLAMA_TEST_VERSIONS = [
+  '0.30.10','0.30.0','0.29.0','0.28.0','0.27.0','0.26.0','0.25.0','0.24.0','0.23.0','0.22.0',
+  '0.21.0','0.20.0','0.19.0','0.18.0','0.17.0','0.16.0','0.15.0','0.14.0','0.13.0','0.12.0',
+  '0.11.0','0.10.0','0.9.0','0.8.0','0.7.0','0.6.0',
+];
+const OLLAMA_TEST_MODELS    = ['gemma3:4b','gemma3:12b','llama3.2:1b','llama3'];
+const OLLAMA_TEST_CONTAINER = 'ollama-version-test';
+const OLLAMA_TEST_VOLUME    = 'ollama-version-test-cache';
+
+type VTStatus = 'pending'|'pulling_image'|'starting'|'pulling_model'|'running'|'ok'|'too_old'|'segfault'|'skip'|'error';
+interface VTResult { version: string; status: VTStatus; message?: string; }
+interface VTState  { running: boolean; model: string; results: VTResult[]; log: string; aborted: boolean; }
+
+let vtState: VTState = { running: false, model: '', results: [], log: '', aborted: false };
+
+async function execOnContainer(
+  container: Dockerode.Container,
+  cmd: string[],
+  timeoutMs: number,
+): Promise<{ output: string; exitCode: number }> {
+  const exec   = await container.exec({ Cmd: cmd, AttachStdout: true, AttachStderr: true, Tty: true });
+  const stream = await exec.start({ hijack: true, stdin: false });
+  return new Promise(resolve => {
+    let output = '', settled = false;
+    const done = async () => {
+      if (settled) return; settled = true;
+      try { const i = await exec.inspect(); resolve({ output, exitCode: (i as any).ExitCode ?? 0 }); }
+      catch { resolve({ output, exitCode: 0 }); }
+    };
+    const timer = setTimeout(() => { if (!settled) { settled = true; resolve({ output, exitCode: -1 }); } }, timeoutMs);
+    stream.on('data',  (d: Buffer) => { output += d.toString(); });
+    stream.on('end',   () => { clearTimeout(timer); done(); });
+    stream.on('error', () => { clearTimeout(timer); done(); });
+  });
+}
+
+async function runVersionTest(versions: string[], model: string): Promise<void> {
+  vtState = { running: true, model, aborted: false, log: '', results: versions.map(v => ({ version: v, status: 'pending' })) };
+  const set = (v: string, s: VTStatus, msg?: string) => {
+    const r = vtState.results.find(r => r.version === v);
+    if (r) { r.status = s; r.message = msg; }
+  };
+  const cleanupCtr = async () => {
+    try {
+      const c = docker.getContainer(OLLAMA_TEST_CONTAINER);
+      const i = await c.inspect().catch(() => null);
+      if (i) { if (i.State.Running) await c.stop({ t: 5 }).catch(() => {}); await c.remove({ force: true }).catch(() => {}); }
+    } catch {}
+  };
+  try {
+    for (const version of versions) {
+      if (vtState.aborted) break;
+      vtState.log += `\n── Testing ${version} ──\n`;
+      set(version, 'pulling_image');
+
+      try {
+        await new Promise<void>((res, rej) => {
+          docker.pull(`ollama/ollama:${version}`, (err: Error | null, stream: NodeJS.ReadableStream) => {
+            if (err) return rej(err);
+            docker.modem.followProgress(stream, (e: Error | null) => e ? rej(e) : res());
+          });
+        });
+        vtState.log += `  Pulled ollama/ollama:${version}\n`;
+      } catch (err: any) {
+        const msg = err.message || '';
+        if (/not found|404|manifest unknown/i.test(msg)) {
+          set(version, 'skip', 'Image not on Docker Hub'); continue;
+        }
+        set(version, 'error', `Image pull failed: ${msg.slice(0, 80)}`); continue;
+      }
+
+      if (vtState.aborted) break;
+      await cleanupCtr();
+
+      set(version, 'starting');
+      let ctr: Dockerode.Container;
+      try {
+        ctr = await docker.createContainer({
+          name: OLLAMA_TEST_CONTAINER, Image: `ollama/ollama:${version}`,
+          HostConfig: { SecurityOpt: ['seccomp=unconfined'], Binds: [`${OLLAMA_TEST_VOLUME}:/root/.ollama`] },
+        });
+        await ctr.start();
+      } catch (err: any) {
+        set(version, 'error', `Start failed: ${err.message}`); continue;
+      }
+
+      let ready = false;
+      for (let i = 0; i < 30; i++) {
+        await new Promise(r => setTimeout(r, 1000));
+        try { await execOnContainer(ctr, ['ollama', 'list'], 3000); ready = true; break; } catch {}
+      }
+      if (!ready) { set(version, 'error', 'Container not ready'); await cleanupCtr(); continue; }
+      if (vtState.aborted) { await cleanupCtr(); break; }
+
+      set(version, 'pulling_model');
+      vtState.log += `  Pulling ${model}...\n`;
+      const { output: pullOut } = await execOnContainer(ctr, ['ollama', 'pull', model], 600_000);
+      if (/412|newer version of Ollama/i.test(pullOut)) {
+        set(version, 'too_old', '412 — model requires a newer Ollama'); await cleanupCtr(); continue;
+      }
+      if (/^Error/im.test(pullOut) && !/success|pulling manifest|already/i.test(pullOut)) {
+        set(version, 'error', pullOut.trim().slice(0, 100)); await cleanupCtr(); continue;
+      }
+      if (vtState.aborted) { await cleanupCtr(); break; }
+
+      set(version, 'running');
+      vtState.log += `  Running model...\n`;
+      const { output: runOut, exitCode } = await execOnContainer(ctr, ['ollama', 'run', model, 'say hello'], 120_000);
+      if (/segmentation fault|signal: segmentation|core dumped|500 Internal/i.test(runOut)) {
+        vtState.log += `  SEGFAULT\n`;
+        set(version, 'segfault', 'Crashes on this kernel');
+      } else if (exitCode === 0 && runOut.trim().length > 0 && !/^Error/i.test(runOut.trim())) {
+        vtState.log += `  OK\n`;
+        set(version, 'ok', runOut.trim().slice(0, 100));
+      } else {
+        set(version, 'error', runOut.trim().slice(0, 100) || `Exit ${exitCode}`);
+      }
+      await cleanupCtr();
+    }
+  } finally {
+    await cleanupCtr();
+    vtState.running = false;
+    vtState.log += '\nDone.\n';
+  }
+}
+
+// GET /api/admin/ollama/version-test/config
+router.get('/ollama/version-test/config', (_req, res) => {
+  res.json({ versions: OLLAMA_TEST_VERSIONS, models: OLLAMA_TEST_MODELS });
+});
+
+// GET /api/admin/ollama/version-test/status
+router.get('/ollama/version-test/status', (_req, res) => res.json(vtState));
+
+// POST /api/admin/ollama/version-test/run
+router.post('/ollama/version-test/run', (req, res) => {
+  if (vtState.running) return res.status(409).json({ error: 'Test already running' });
+  const { versions, model } = req.body;
+  if (!Array.isArray(versions) || !versions.length) return res.status(400).json({ error: 'versions required' });
+  if (!model) return res.status(400).json({ error: 'model required' });
+  res.json({ message: 'Test started' });
+  setImmediate(() => runVersionTest(versions, model));
+});
+
+// POST /api/admin/ollama/version-test/stop
+router.post('/ollama/version-test/stop', (_req, res) => {
+  vtState.aborted = true;
+  res.json({ message: 'Stop requested' });
+});
+
+// POST /api/admin/ollama/version-test/clean
+router.post('/ollama/version-test/clean', async (_req, res) => {
+  try {
+    try { const c = docker.getContainer(OLLAMA_TEST_CONTAINER); await c.stop({ t: 3 }).catch(() => {}); await c.remove({ force: true }); } catch {}
+    try { await (docker.getVolume(OLLAMA_TEST_VOLUME) as any).remove(); } catch {}
+    const images = await docker.listImages({ filters: { reference: ['ollama/ollama'] } as any });
+    const removed: string[] = [];
+    for (const img of images) {
+      for (const tag of img.RepoTags || []) {
+        if (!/^ollama\/ollama:\d/.test(tag)) continue;
+        try { await docker.getImage(img.Id).remove({ force: false }); removed.push(tag); } catch {}
+      }
+    }
+    res.json({ message: `Cleaned up. Images removed: ${removed.join(', ') || 'none'}` });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// DELETE /api/admin/ollama/models
+router.delete('/ollama/models', async (_req, res) => {
+  try {
+    const info = await docker.getContainer('ollama').inspect().catch(() => null);
+    if (!info?.State.Running) return res.status(400).json({ error: 'Ollama container is not running' });
+    const listOut = await dockerExecCollect('ollama', ['ollama', 'list']);
+    const models  = listOut.trim().split('\n').slice(1).map((l: string) => l.trim().split(/\s+/)[0]).filter(Boolean);
+    if (!models.length) return res.json({ message: 'No models to remove' });
+    for (const m of models) await dockerExecCollect('ollama', ['ollama', 'rm', m]).catch(() => {});
+    res.json({ message: `Removed ${models.length} model(s): ${models.join(', ')}` });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
 // POST /api/admin/ollama/update
 // Pulls the latest ollama/ollama image and recreates the container with it.
 router.post('/ollama/update', async (_req, res) => {

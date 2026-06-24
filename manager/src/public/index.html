@@ -509,6 +509,34 @@
       </div>
     </div>
 
+    <!-- Ollama Version Tester card -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:24px">
+      <div style="font-size:14px;font-weight:600;margin-bottom:4px">🔬 Ollama Version Tester</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5">
+        Test multiple Ollama versions to find the oldest one that supports your model without crashing on this kernel.
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+        <label style="font-size:12px;color:var(--muted)">Model:</label>
+        <select id="vt-model" class="input" style="width:auto;padding:4px 8px;font-size:12px"></select>
+        <button class="btn btn-primary btn-sm" id="vt-run-btn" onclick="vtRun()">▶ Run Test</button>
+        <button class="btn btn-ghost btn-sm" id="vt-stop-btn" style="display:none" onclick="vtStop()">⏹ Stop</button>
+        <button class="btn btn-ghost btn-sm" id="vt-clean-btn" onclick="vtClean()" title="Remove test container, volume and downloaded images">🗑 Clean Test Cache</button>
+        <button class="btn btn-ghost btn-sm" onclick="vtDeleteAllModels()" title="Delete all models from the running Ollama container">🗑 Delete All Models</button>
+      </div>
+      <div style="margin-bottom:12px">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:6px;display:flex;align-items:center;gap:8px">
+          <span>Versions to test:</span>
+          <button class="btn btn-ghost btn-sm" style="padding:1px 6px;font-size:11px" onclick="vtSelectAll()">All</button>
+          <button class="btn btn-ghost btn-sm" style="padding:1px 6px;font-size:11px" onclick="vtSelectNone()">None</button>
+        </div>
+        <div id="vt-versions" style="display:flex;flex-wrap:wrap;gap:6px;max-height:100px;overflow-y:auto;padding:2px 0"></div>
+      </div>
+      <div id="vt-results" style="display:none">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Results</div>
+        <div id="vt-results-table" style="overflow-x:auto"></div>
+      </div>
+    </div>
+
     <div class="table-toolbar">
       <div>
         <h2 style="font-size:16px;font-weight:600">User Management</h2>
