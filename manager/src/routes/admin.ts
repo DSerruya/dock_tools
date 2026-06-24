@@ -964,7 +964,11 @@ router.get('/system/resources', async (_req, res) => {
           (docker.getContainer(c.Id) as any).stats({ stream: false }, (err: any, data: any) =>
             err ? reject(err) : resolve(data)));
         const info: any = await (docker.getContainer(c.Id) as any).inspect({ size: true }).catch(() => null);
-        const memUsage  = stats?.memory_stats?.usage || 0;
+        // Match docker stats CLI: subtract page cache so RSS aligns with /proc/meminfo
+        const memCache  = stats?.memory_stats?.stats?.inactive_file   // cgroups v2
+                       ?? stats?.memory_stats?.stats?.cache           // cgroups v1
+                       ?? 0;
+        const memUsage  = Math.max(0, (stats?.memory_stats?.usage || 0) - memCache);
         const memLimit  = stats?.memory_stats?.limit || memTotal;
         const diskRw    = info?.SizeRw || 0;
         return { name, memUsage, memLimit, diskRw };
