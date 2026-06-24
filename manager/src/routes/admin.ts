@@ -12,6 +12,14 @@ import { getUser }       from '../utils/getUser';
 
 const router = Router();
 
+function stripAnsi(str: string): string {
+  return str
+    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')  // OSC sequences
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')              // CSI sequences
+    .replace(/\x1b[@-Z\\-_]/g, '')                        // other ESC sequences
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');  // stray control chars
+}
+
 // ── Self-update machinery ─────────────────────────────────────────────────────
 
 const docker       = new Dockerode({ socketPath: '/var/run/docker.sock' });
@@ -475,7 +483,7 @@ async function runAddonOp(id: string, op: 'install' | 'remove'): Promise<void> {
     });
     const stream = await exec.start({ hijack: true, stdin: false });
     await new Promise<void>((resolve, reject) => {
-      stream.on('data',  (d: Buffer) => { state.log += d.toString(); });
+      stream.on('data',  (d: Buffer) => { state.log += stripAnsi(d.toString()); });
       stream.on('end',   async () => {
         try {
           const info = await exec.inspect();
