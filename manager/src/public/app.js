@@ -1514,6 +1514,21 @@ async function loadAddons() {
   }
 }
 
+function addonStatusBadge(a) {
+  if      (a.opStatus === 'installing')  return '<span style="font-size:11px;color:var(--accent)">⟳ Installing…</span>';
+  else if (a.opStatus === 'removing')    return '<span style="font-size:11px;color:var(--yellow,#facc15)">⟳ Removing…</span>';
+  else if (a.opStatus === 'error')       return `<span style="font-size:11px;color:var(--red)" title="${escHtml(a.error||'')}">✗ Error</span>`;
+  else if (!a.containerFound)            return '<span style="font-size:11px;color:var(--muted)">Container not found</span>';
+  else if (a.installed)                  return '<span style="font-size:11px;color:var(--green)">✓ Installed</span>';
+  else                                   return '<span style="font-size:11px;color:var(--muted)">Not installed</span>';
+}
+
+function addonLogBlock(a) {
+  const isBusy = a.opStatus === 'installing' || a.opStatus === 'removing';
+  if (!(isBusy || a.opStatus === 'done' || a.opStatus === 'error') || !a.log) return '';
+  return `<pre style="margin-top:8px;font-family:'Courier New',monospace;font-size:11px;background:#0a0c12;border:1px solid var(--border);border-radius:6px;padding:8px;max-height:140px;overflow-y:auto;color:#a3e635;white-space:pre-wrap;word-break:break-all">${escHtml(a.log)}</pre>`;
+}
+
 function renderAddons(addons) {
   const container = document.getElementById('addons-container');
   if (!container) return;
@@ -1521,41 +1536,95 @@ function renderAddons(addons) {
     container.innerHTML = '<div style="font-size:12px;color:var(--muted)">No addons configured.</div>';
     return;
   }
-  container.innerHTML = addons.map((a, i) => {
-    const isBusy = a.opStatus === 'installing' || a.opStatus === 'removing';
-    let statusBadge;
-    if      (a.opStatus === 'installing')  statusBadge = '<span style="font-size:11px;color:var(--accent)">⟳ Installing…</span>';
-    else if (a.opStatus === 'removing')    statusBadge = '<span style="font-size:11px;color:var(--yellow,#facc15)">⟳ Removing…</span>';
-    else if (a.opStatus === 'error')       statusBadge = `<span style="font-size:11px;color:var(--red)" title="${escHtml(a.error||'')}">✗ Error</span>`;
-    else if (!a.containerFound)            statusBadge = '<span style="font-size:11px;color:var(--muted)">Container not found</span>';
-    else if (a.installed)                  statusBadge = '<span style="font-size:11px;color:var(--green)">✓ Installed</span>';
-    else                                   statusBadge = '<span style="font-size:11px;color:var(--muted)">Not installed</span>';
 
-    const showLog = (isBusy || a.opStatus === 'done' || a.opStatus === 'error') && a.log;
-    const logBlock = showLog
-      ? `<pre style="margin-top:10px;font-family:'Courier New',monospace;font-size:11px;background:#0a0c12;border:1px solid var(--border);border-radius:6px;padding:8px;max-height:160px;overflow-y:auto;color:#a3e635;white-space:pre-wrap;word-break:break-all">${escHtml(a.log)}</pre>`
-      : '';
-    const sep = i < addons.length - 1
-      ? 'padding-bottom:12px;margin-bottom:12px;border-bottom:1px solid var(--border);'
-      : '';
-    return `
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px;${sep}">
-        <div style="flex:1;min-width:0">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-            <span style="font-size:13px;font-weight:600">${escHtml(a.name)}</span>
-            ${statusBadge}
-          </div>
-          <div style="font-size:12px;color:var(--muted);line-height:1.5">${escHtml(a.description)}</div>
-          ${logBlock}
-        </div>
-        <div style="display:flex;gap:8px;flex-shrink:0;margin-top:2px">
-          <button class="btn btn-primary btn-sm" onclick="installAddon('${escHtml(a.id)}')"
-            ${(isBusy || a.installed || !a.containerFound) ? 'disabled' : ''}>↓ Install</button>
-          <button class="btn btn-ghost btn-sm" onclick="removeAddon('${escHtml(a.id)}')"
-            ${(isBusy || !a.installed || !a.containerFound) ? 'disabled' : ''}>✕ Remove</button>
-        </div>
+  const ollamaAddons = addons.filter(a => a.id.startsWith('ollama-'));
+  const otherAddons  = addons.filter(a => !a.id.startsWith('ollama-'));
+
+  let html = '';
+
+  // ── Ollama Models ──────────────────────────────────────────────────────────
+  if (ollamaAddons.length) {
+    const containerFound  = ollamaAddons.some(a => a.containerFound);
+    const anyBusy         = ollamaAddons.some(a => a.opStatus === 'installing' || a.opStatus === 'removing');
+    const availableModels = ollamaAddons.filter(a => !a.installed && a.opStatus !== 'installing');
+    const installedModels = ollamaAddons.filter(a => a.installed || a.opStatus === 'installing' || a.opStatus === 'removing' || a.opStatus === 'error');
+
+    const modelOptions = availableModels.map(a => {
+      const label = a.name.replace(/^Ollama\s*[–-]\s*/i, '');
+      return `<option value="${escHtml(a.id)}">${escHtml(label)}</option>`;
+    }).join('');
+
+    const selectDisabled = !containerFound || anyBusy || !availableModels.length ? 'disabled' : '';
+    const installDisabled = !containerFound || anyBusy || !availableModels.length ? 'disabled' : '';
+
+    html += `
+      <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">Ollama Models</div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px">
+        <select id="ollama-model-select" ${selectDisabled}
+          style="flex:1;background:var(--surface2,#1a1d27);border:1px solid var(--border);border-radius:6px;padding:5px 8px;font-size:13px;color:var(--fg);min-width:0">
+          <option value="">${availableModels.length ? 'Select a model…' : 'All models installed'}</option>
+          ${modelOptions}
+        </select>
+        <button class="btn btn-primary btn-sm" onclick="installSelectedModel()" ${installDisabled}>↓ Install</button>
       </div>`;
-  }).join('');
+
+    if (installedModels.length) {
+      html += `<div style="display:flex;flex-direction:column;gap:8px">`;
+      for (const a of installedModels) {
+        const isBusy = a.opStatus === 'installing' || a.opStatus === 'removing';
+        const label  = a.name.replace(/^Ollama\s*[–-]\s*/i, '');
+        html += `
+          <div style="background:var(--surface2,#1a1d27);border:1px solid var(--border);border-radius:6px;padding:10px 12px">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+              <div style="display:flex;align-items:center;gap:8px">
+                <span style="font-size:13px;font-weight:600">${escHtml(label)}</span>
+                ${addonStatusBadge(a)}
+              </div>
+              <button class="btn btn-ghost btn-sm" onclick="removeAddon('${escHtml(a.id)}')"
+                ${(isBusy || !a.containerFound) ? 'disabled' : ''}>✕ Remove</button>
+            </div>
+            ${addonLogBlock(a)}
+          </div>`;
+      }
+      html += `</div>`;
+    } else {
+      html += `<div style="font-size:12px;color:var(--muted);padding:6px 0">No models installed yet.</div>`;
+    }
+  }
+
+  // ── Other addons ───────────────────────────────────────────────────────────
+  if (otherAddons.length) {
+    if (ollamaAddons.length) html += `<div style="margin-top:20px;margin-bottom:10px;border-top:1px solid var(--border)"></div>`;
+    html += otherAddons.map((a, i) => {
+      const isBusy = a.opStatus === 'installing' || a.opStatus === 'removing';
+      const sep = i < otherAddons.length - 1 ? 'padding-bottom:12px;margin-bottom:12px;border-bottom:1px solid var(--border);' : '';
+      return `
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px;${sep}">
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+              <span style="font-size:13px;font-weight:600">${escHtml(a.name)}</span>
+              ${addonStatusBadge(a)}
+            </div>
+            <div style="font-size:12px;color:var(--muted);line-height:1.5">${escHtml(a.description)}</div>
+            ${addonLogBlock(a)}
+          </div>
+          <div style="display:flex;gap:8px;flex-shrink:0;margin-top:2px">
+            <button class="btn btn-primary btn-sm" onclick="installAddon('${escHtml(a.id)}')"
+              ${(isBusy || a.installed || !a.containerFound) ? 'disabled' : ''}>↓ Install</button>
+            <button class="btn btn-ghost btn-sm" onclick="removeAddon('${escHtml(a.id)}')"
+              ${(isBusy || !a.installed || !a.containerFound) ? 'disabled' : ''}>✕ Remove</button>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  container.innerHTML = html;
+}
+
+async function installSelectedModel() {
+  const sel = document.getElementById('ollama-model-select');
+  if (!sel || !sel.value) return;
+  await installAddon(sel.value);
 }
 
 async function installAddon(id) {
@@ -1566,7 +1635,7 @@ async function installAddon(id) {
 }
 
 async function removeAddon(id) {
-  if (!confirm('Remove this addon?')) return;
+  if (!confirm('Remove this model?')) return;
   try {
     await api('POST', `/api/admin/addons/${id}/remove`);
     await loadAddons();
