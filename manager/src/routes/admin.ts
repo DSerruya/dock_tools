@@ -1,5 +1,7 @@
 import { Router } from 'express';
-import { spawn }   from 'child_process';
+import { spawn, exec } from 'child_process';
+import { promisify }   from 'util';
+const execAsync = promisify(exec);
 import * as fs     from 'fs';
 import * as os     from 'os';
 import * as path   from 'path';
@@ -925,6 +927,74 @@ router.post('/ollama/update', async (_req, res) => {
     });
     await recreateOllama({}, 'ollama/ollama:latest');
     res.json({ message: 'Ollama updated to latest and restarted' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── System resources ──────────────────────────────────────────────────────────
+
+// GET /api/admin/system/resources
+router.get('/system/resources', async (_req, res) => {
+  try {
+    // Disk — read from inside the container (overlay maps to host disk)
+    const { stdout: dfOut } = await execAsync('df -B1 /').catch(() => ({ stdout: '' }));
+    const dfParts  = (dfOut.trim().split('\n')[1] || '').split(/\s+/);
+    const diskTotal = parseInt(dfParts[1]) || 0;
+    const diskUsed  = parseInt(dfParts[2]) || 0;
+    const diskFree  = parseInt(dfParts[3]) || 0;
+
+    // Memory — from /proc/meminfo (reflects host totals on Linux)
+    const memRaw  = fs.readFileSync('/proc/meminfo', 'utf8');
+    const memKb   = (key: string) => parseInt((memRaw.match(new RegExp(`${key}:\\s+(\\d+)\\s+kB`)) || [])[1] || '0') * 1024;
+    const memTotal     = memKb('MemTotal');
+    const memAvailable = memKb('MemAvailable');
+    const memUsed      = memTotal - memAvailable;
+
+    // Per-container stats (memory + writable disk layer)
+    const ctrs = await docker.listContainers();
+    const containerStats = await Promise.all(ctrs.map(async c => {
+      const name = (c.Names[0] || '').replace(/^\//, '');
+      try {
+        const [stats, info] = await Promise.all([
+          new Promise<any>((resolve, reject) =>
+            docker.getContainer(c.Id).stats({ stream: false } as any, (err: any, data: any) =>
+              err ? reject(err) : resolve(data))),
+          docker.getContainer(c.Id).inspect({ size: true } as any).catch(() => null),
+        ]);
+        const memUsage  = stats?.memory_stats?.usage || 0;
+        const memLimit  = stats?.memory_stats?.limit || memTotal;
+        const diskRw    = (info as any)?.SizeRw || 0;
+        return { name, memUsage, memLimit, diskRw };
+      } catch {
+        return { name, memUsage: 0, memLimit: memTotal, diskRw: 0 };
+      }
+    }));
+
+    res.json({
+      disk:       { total: diskTotal, used: diskUsed, free: diskFree },
+      memory:     { total: memTotal, used: memUsed, available: memAvailable },
+      containers: containerStats,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Ollama reset all env flags ────────────────────────────────────────────────
+
+// POST /api/admin/ollama/reset-flags
+// Removes all CPU-override env vars and recreates the container.
+router.post('/ollama/reset-flags', async (_req, res) => {
+  try {
+    await recreateOllama({
+      OLLAMA_NO_AMX:        null,
+      GGML_NO_AMX:          null,
+      OLLAMA_CPU_FEATURES:  null,
+      OLLAMA_LLM_LIBRARY:   null,
+      OLLAMA_FLASH_ATTENTION: null,
+    });
+    res.json({ message: 'All CPU flags removed and Ollama restarted' });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

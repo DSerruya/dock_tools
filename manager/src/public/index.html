@@ -468,6 +468,17 @@
       </div>
     </div>
 
+    <!-- System Resources card -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:24px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <div style="font-size:14px;font-weight:600">💾 System Resources</div>
+        <button class="btn btn-ghost btn-sm" onclick="loadResources()" style="font-size:11px">↻ Refresh</button>
+      </div>
+      <div id="res-content">
+        <div style="font-size:12px;color:var(--muted)">Loading…</div>
+      </div>
+    </div>
+
     <!-- Addons card -->
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:24px">
       <div style="font-size:14px;font-weight:600;margin-bottom:12px">🧩 Addons</div>
@@ -510,6 +521,7 @@
         <button class="btn btn-primary btn-sm" id="ollama-both-fix-btn" style="display:none" onclick="ollamaApplyBothAmxFix()" title="Not sure when it crashes — apply both fixes at once">⚡ Fix: Both AMX flags</button>
         <button class="btn btn-primary btn-sm" id="ollama-avx2-fix-btn" style="display:none" onclick="ollamaApplyAvx2Fix()" title="Cap CPU instruction set to AVX2 only, skipping AMX and AVX-512">⚡ Fix: AVX2 only</button>
         <button class="btn btn-primary btn-sm" id="ollama-avx2-runner-btn" style="display:none" onclick="ollamaApplyAvx2Runner()" title="Force the AVX2 CPU runner instead of auto-detecting AMX">⚡ Fix: AVX2 runner</button>
+        <button class="btn btn-ghost btn-sm" id="ollama-reset-btn" style="display:none" onclick="ollamaResetFlags()" title="Remove all CPU env var overrides and restart Ollama with defaults">↺ Reset All Flags</button>
       </div>
       <div id="ollama-mem-row" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);display:none;align-items:center;gap:8px;flex-wrap:wrap">
         <span style="font-size:12px;color:var(--muted)">Memory limit:</span>

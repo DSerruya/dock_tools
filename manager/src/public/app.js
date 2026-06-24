@@ -85,7 +85,7 @@ function showTab(tab) {
   if (tab === 'scripts')    loadScripts();
   else if (tab === 'logs')  loadLogs();
   else if (tab === 'audit') loadAudit();
-  else if (tab === 'admin') { loadUsers(); loadSystemVersion(); loadAddons(); vtInit(); ovLoad(); }
+  else if (tab === 'admin') { loadUsers(); loadSystemVersion(); loadAddons(); loadResources(); vtInit(); ovLoad(); }
 }
 
 /* ── Role helpers ──────────────────────────────────────────────────────────── */
@@ -1573,6 +1573,64 @@ async function removeAddon(id) {
   } catch (e) { alert('Remove failed: ' + e.message); }
 }
 
+/* ── System Resources ────────────────────────────────────────────────────── */
+
+function fmtBytes(b) {
+  if (!b) return '0 B';
+  const u = ['B','KB','MB','GB','TB'];
+  let i = 0;
+  while (b >= 1024 && i < u.length - 1) { b /= 1024; i++; }
+  return `${b.toFixed(i > 1 ? 1 : 0)} ${u[i]}`;
+}
+
+function resGauge(used, total, label) {
+  const pct   = total ? Math.round(used / total * 100) : 0;
+  const color = pct > 90 ? '#ef4444' : pct > 70 ? '#f59e0b' : 'var(--green)';
+  return `<div style="margin-bottom:12px">
+    <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px">
+      <span style="font-weight:500">${label}</span>
+      <span style="color:var(--muted)">${fmtBytes(used)} / ${fmtBytes(total)} &nbsp;(${pct}%)</span>
+    </div>
+    <div style="background:var(--border);border-radius:4px;height:8px">
+      <div style="background:${color};height:8px;border-radius:4px;width:${pct}%;transition:width .3s"></div>
+    </div>
+  </div>`;
+}
+
+async function loadResources() {
+  const el = document.getElementById('res-content');
+  try {
+    const d = await api('GET', '/api/admin/system/resources');
+
+    let html = resGauge(d.disk.used, d.disk.total, '💿 Disk');
+    html    += resGauge(d.memory.used, d.memory.total, '🧠 Memory');
+
+    if (d.containers.length) {
+      html += `<div style="font-size:11px;color:var(--muted);margin:12px 0 6px">Containers</div>
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <tr style="border-bottom:1px solid var(--border)">
+          <th style="text-align:left;padding:4px 8px;color:var(--muted);font-weight:500">Name</th>
+          <th style="text-align:right;padding:4px 8px;color:var(--muted);font-weight:500">Memory</th>
+          <th style="text-align:right;padding:4px 8px;color:var(--muted);font-weight:500">Disk (Δ)</th>
+        </tr>`;
+      for (const c of d.containers.sort((a, b) => b.memUsage - a.memUsage)) {
+        const memPct = c.memLimit ? Math.round(c.memUsage / c.memLimit * 100) : 0;
+        const memColor = memPct > 90 ? '#ef4444' : memPct > 70 ? '#f59e0b' : 'var(--muted)';
+        html += `<tr style="border-bottom:1px solid var(--border)">
+          <td style="padding:4px 8px;font-family:monospace">${escHtml(c.name)}</td>
+          <td style="padding:4px 8px;text-align:right;color:${memColor}">${fmtBytes(c.memUsage)} <span style="color:var(--muted);font-size:10px">(${memPct}%)</span></td>
+          <td style="padding:4px 8px;text-align:right;color:var(--muted)">${c.diskRw ? fmtBytes(c.diskRw) : '—'}</td>
+        </tr>`;
+      }
+      html += '</table>';
+    }
+
+    el.innerHTML = html;
+  } catch (e) {
+    el.innerHTML = `<span style="font-size:12px;color:#ef4444">${escHtml(e.message)}</span>`;
+  }
+}
+
 /* ── Ollama Version Pin ──────────────────────────────────────────────────── */
 
 async function ovLoad() {
@@ -1737,7 +1795,8 @@ async function ollamaCpuCheck() {
   btn.textContent = '⟳ Checking…';
   result.innerHTML = '';
   document.getElementById('ollama-mem-row').style.display = 'none';
-  [updateBtn, fixBtn, ggmlFixBtn, bothFixBtn, avx2FixBtn, avx2RunnerBtn].forEach(b => { b.style.display = 'none'; });
+  const resetBtn = document.getElementById('ollama-reset-btn');
+  [updateBtn, fixBtn, ggmlFixBtn, bothFixBtn, avx2FixBtn, avx2RunnerBtn, resetBtn].forEach(b => { b.style.display = 'none'; });
 
   try {
     const data = await api('GET', '/api/admin/ollama/cpu-check');
@@ -1795,6 +1854,8 @@ async function ollamaCpuCheck() {
     }
     document.getElementById('ollama-mem-row').style.display = 'flex';
 
+    const anyFlagSet = data.noAmxSet || data.noGgmlAmxSet || data.avx2OnlySet || data.avx2RunnerSet;
+    if (anyFlagSet) resetBtn.style.display = '';
     result.innerHTML = `<div style="margin-bottom:6px;font-size:12px;color:var(--muted)">CPU flags:</div>${flagsHtml}${envLine}${guidance}`;
   } catch (e) {
     result.innerHTML = `<span style="font-size:12px;color:var(--red)">Error: ${escHtml(e.message)}</span>`;
@@ -1840,6 +1901,25 @@ async function ollamaApplyAvx2Fix() {
 
 async function ollamaApplyAvx2Runner() {
   await _ollamaRestartAction('/api/admin/ollama/restart-avx2-runner', 'OLLAMA_LLM_LIBRARY=cpu_avx2', 'ollama-avx2-runner-btn', '⚡ Fix: AVX2 runner');
+}
+
+async function ollamaResetFlags() {
+  const btn    = document.getElementById('ollama-reset-btn');
+  const result = document.getElementById('ollama-cpu-result');
+  if (!confirm('Remove all CPU env var fixes and restart Ollama with defaults. Continue?')) return;
+  btn.disabled = true;
+  btn.textContent = '⟳ Resetting…';
+  try {
+    await api('POST', '/api/admin/ollama/reset-flags');
+    toast('All CPU flags removed and Ollama restarted', 'success');
+    result.innerHTML += '<div style="margin-top:8px;font-size:12px;color:var(--green)">✓ Flags cleared. Run Check CPU Flags again to verify.</div>';
+    btn.style.display = 'none';
+  } catch (e) {
+    toast('Failed: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '↺ Reset All Flags';
+  }
 }
 
 function ollamaMemSelectChanged() {
