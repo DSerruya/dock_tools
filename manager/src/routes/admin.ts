@@ -403,6 +403,17 @@ const ADDONS: AddonDef[] = [
   ollamaAddon('llama3.3:70b',       'Llama 3.3 (70B)',           'Updated Llama iteration with sharper instruction following. ~43 GB RAM.',                         'High Memory – 50–256 GB'),
   ollamaAddon('wizardlm2:8x22b',    'WizardLM 2 (8x22B)',        'Microsoft fine-tune optimized for complex coding and logic. ~141 GB RAM.',                        'High Memory – 50–256 GB'),
   ollamaAddon('falcon:180b',        'Falcon (180B Q4)',           "TII's heavily quantized ultra-large model for deep textual analysis. ~100 GB RAM.",                'High Memory – 50–256 GB'),
+  // ── GGUF Quantized ───────────────────────────────────────────────────────
+  ollamaAddon('llama3.2:1b-instruct-q4_K_M',              'Llama 3.2 1B Q4_K_M',              'GGUF Q4_K_M quantized — smallest Llama variant, ideal for edge and fast autocomplete. ~0.7 GB RAM.',              'GGUF Quantized'),
+  ollamaAddon('llama3.2:3b-instruct-q4_K_M',              'Llama 3.2 3B Q4_K_M',              'GGUF Q4_K_M quantized — great balance of speed and quality for everyday tasks. ~1.8 GB RAM.',                    'GGUF Quantized'),
+  ollamaAddon('llama3.1:8b-instruct-q4_K_M',              'Llama 3.1 8B Q4_K_M',              'GGUF Q4_K_M quantized — highly popular 8B with minimal quality loss from full precision. ~4.7 GB RAM.',           'GGUF Quantized'),
+  ollamaAddon('llama3.1:8b-instruct-q8_0',                'Llama 3.1 8B Q8_0',                'GGUF Q8_0 quantized — near-lossless 8-bit weights, highest fidelity for the 8B class. ~8.5 GB RAM.',              'GGUF Quantized'),
+  ollamaAddon('mistral:7b-instruct-q4_K_M',               'Mistral 7B Q4_K_M',                'GGUF Q4_K_M quantized — fast and accurate instruction-following at low memory cost. ~4.1 GB RAM.',                'GGUF Quantized'),
+  ollamaAddon('qwen2.5:7b-instruct-q4_K_M',               'Qwen 2.5 7B Q4_K_M',               "GGUF Q4_K_M quantized — Alibaba's strong multilingual model in a compact quantized form. ~4.7 GB RAM.",           'GGUF Quantized'),
+  ollamaAddon('gemma2:9b-instruct-q4_K_M',                'Gemma 2 9B Q4_K_M',                "GGUF Q4_K_M quantized — Google's high-efficiency 9B model with low RAM footprint. ~5.5 GB RAM.",                  'GGUF Quantized'),
+  ollamaAddon('qwen2.5-coder:7b-instruct-q4_K_M',         'Qwen 2.5-Coder 7B Q4_K_M',         'GGUF Q4_K_M quantized — strong code completion and explanation model, lean on memory. ~4.7 GB RAM.',              'GGUF Quantized'),
+  ollamaAddon('deepseek-coder-v2:16b-lite-instruct-q4_K_M','DeepSeek Coder V2 16B Q4_K_M',    'GGUF Q4_K_M quantized — 16B coding specialist with MoE architecture, low active params. ~9.7 GB RAM.',           'GGUF Quantized'),
+  ollamaAddon('llama3.1:70b-instruct-q4_K_M',             'Llama 3.1 70B Q4_K_M',             'GGUF Q4_K_M quantized — 70B flagship compressed to fit in ~40 GB, best quality-per-GB at this tier. ~42 GB RAM.', 'GGUF Quantized'),
   // ── Other ─────────────────────────────────────────────────────────────────
   {
     id:          'docker-health-check',
