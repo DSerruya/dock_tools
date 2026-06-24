@@ -346,37 +346,54 @@ interface AddonDef {
   removeCmd:   string[];
 }
 
+function ollamaAddon(tag: string, label: string, description: string): AddonDef {
+  const id = 'ollama-' + tag.replace(/[:.]/g, '-').replace(/-+/g, '-').replace(/-$/, '');
+  return {
+    id,
+    name:        `Ollama – ${label}`,
+    description,
+    container:   'ollama',
+    checkCmd:    ['ollama', 'list'],
+    checkFn:     (out) => out.toLowerCase().includes(tag.toLowerCase()),
+    installCmd:  ['ollama', 'pull', tag],
+    removeCmd:   ['ollama', 'rm',   tag],
+  };
+}
+
 const ADDONS: AddonDef[] = [
-  {
-    id:          'ollama-llama3',
-    name:        'Ollama – llama3 model',
-    description: 'One-time step after Dock Tools starts: pull the Ollama model by running docker exec ollama ollama pull llama3 once.',
-    container:   'ollama',
-    checkCmd:    ['ollama', 'list'],
-    checkFn:     (out) => /llama3/i.test(out),
-    installCmd:  ['ollama', 'pull', 'llama3'],
-    removeCmd:   ['ollama', 'rm', 'llama3'],
-  },
-  {
-    id:          'ollama-gemma3-12b',
-    name:        'Ollama – gemma3:12b model',
-    description: 'One-time step after Dock Tools starts: pull the Ollama model by running docker exec ollama ollama pull gemma3:12b once.',
-    container:   'ollama',
-    checkCmd:    ['ollama', 'list'],
-    checkFn:     (out) => /gemma3:12b/i.test(out),
-    installCmd:  ['ollama', 'pull', 'gemma3:12b'],
-    removeCmd:   ['ollama', 'rm', 'gemma3:12b'],
-  },
-  {
-    id:          'ollama-gemma3-4b',
-    name:        'Ollama – gemma3:4b model',
-    description: 'One-time step after Dock Tools starts: pull the Ollama model by running docker exec ollama ollama pull gemma3:4b once.',
-    container:   'ollama',
-    checkCmd:    ['ollama', 'list'],
-    checkFn:     (out) => /gemma3:4b/i.test(out),
-    installCmd:  ['ollama', 'pull', 'gemma3:4b'],
-    removeCmd:   ['ollama', 'rm', 'gemma3:4b'],
-  },
+  // ── Low Memory – Under 10 GB RAM ──────────────────────────────────────────
+  ollamaAddon('llama3.2:3b',        'Llama 3.2 (3B)',           "Meta's ultra-lightweight general assistant. Best for speed and low-power devices. ~2 GB RAM."),
+  ollamaAddon('qwen2.5:1.5b',       'Qwen 2.5 (1.5B)',          "Alibaba's tiny model with exceptional multilingual performance. ~1 GB RAM."),
+  ollamaAddon('gemma2:2b',          'Gemma 2 (2B)',              "Google's highly efficient small model with high knowledge density. ~1.5 GB RAM."),
+  ollamaAddon('phi3.5',             'Phi-3.5 (3.8B)',            "Microsoft's strong reasoning model trained on textbook-quality data. ~3 GB RAM."),
+  ollamaAddon('deepseek-r1:1.5b',   'DeepSeek-R1 (1.5B)',       'Smallest reasoning model for basic logic tasks. ~1 GB RAM.'),
+  ollamaAddon('qwen2.5-coder:1.5b', 'Qwen 2.5-Coder (1.5B)',    'Tiny autocomplete and basic coding assistant. ~1 GB RAM.'),
+  ollamaAddon('llama3.2-vision:11b','Llama 3.2-Vision (11B)',    'Multimodal image + text model, quantized for lower memory. ~8 GB RAM.'),
+  ollamaAddon('smollm2:1.7b',       'SmolLM2 (1.7B)',            'Ultra-fast model optimized for local on-device agents. ~1 GB RAM.'),
+  ollamaAddon('stablelm2:1.6b',     'StableLM 2 (1.6B)',         "Stability AI's lightweight text model for fast drafting. ~1 GB RAM."),
+  ollamaAddon('nemotron-mini',      'Nemotron Mini (4B)',         "NVIDIA's small model tuned for roleplay and structured dialogue. ~3 GB RAM."),
+  // ── Medium Memory – 10–50 GB RAM ─────────────────────────────────────────
+  ollamaAddon('llama3.1:8b',        'Llama 3.1 (8B)',            "Meta's reliable baseline for general knowledge and tool use. ~5 GB RAM."),
+  ollamaAddon('gemma2:9b',          'Gemma 2 (9B)',              "Google's mid-size model punching above its weight in benchmarks. ~6 GB RAM."),
+  ollamaAddon('mistral:7b',         'Mistral (7B)',               'Classic, highly versatile model for instruction following. ~4 GB RAM.'),
+  ollamaAddon('qwen2.5-coder:32b',  'Qwen 2.5-Coder (32B)',     'State-of-the-art local coding assistant. ~20 GB RAM.'),
+  ollamaAddon('deepseek-r1:32b',    'DeepSeek-R1 (32B)',         'Distilled reasoning model for deep math and logic. ~20 GB RAM.'),
+  ollamaAddon('phi3:medium',        'Phi-3 Medium (14B)',         "Microsoft's highly capable mid-sized model. ~9 GB RAM."),
+  ollamaAddon('hermes3:8b',         'Hermes 3 (8B)',              'Fine-tuned Llama 3.1 optimized for agentic workflows. ~5 GB RAM.'),
+  ollamaAddon('command-r:35b',      'Command-R (35B)',            "Cohere's enterprise model built specifically for RAG tasks. ~22 GB RAM."),
+  ollamaAddon('yi:34b',             'Yi-1.5 (34B)',               'Excellent bilingual English/Chinese model with long context. ~20 GB RAM.'),
+  ollamaAddon('solar:10.7b',        'Solar (10.7B)',               'Compact model using depth-up-scaling for speed and quality. ~6 GB RAM.'),
+  // ── High Memory – 50–256 GB RAM ──────────────────────────────────────────
+  ollamaAddon('llama3.1:70b',       'Llama 3.1 (70B)',           'High-tier reasoning, great for structured data extraction. ~40 GB RAM.'),
+  ollamaAddon('qwen2.5:72b',        'Qwen 2.5 (72B)',            'Top-performing open-weights model matching proprietary clouds. ~45 GB RAM.'),
+  ollamaAddon('deepseek-r1:70b',    'DeepSeek-R1 (70B)',         'Heavyweight reasoning for intense coding and logic problems. ~43 GB RAM.'),
+  ollamaAddon('gemma2:27b',         'Gemma 2 (27B)',              "Google's large model offering near-lossless 70B-class performance. ~16 GB RAM."),
+  ollamaAddon('command-r-plus',     'Command-R+ (104B)',          "Cohere's massive multilingual model optimized for complex tool use. ~64 GB RAM."),
+  ollamaAddon('mixtral:8x22b',      'Mixtral 8x22B',             'High-speed Mixture-of-Experts model with broad knowledge base. ~141 GB RAM.'),
+  ollamaAddon('llama3.3:70b',       'Llama 3.3 (70B)',           'Updated Llama iteration with sharper instruction following. ~43 GB RAM.'),
+  ollamaAddon('wizardlm2:8x22b',    'WizardLM 2 (8x22B)',        'Microsoft fine-tune optimized for complex coding and logic. ~141 GB RAM.'),
+  ollamaAddon('falcon:180b',        'Falcon (180B Q4)',           "TII's heavily quantized ultra-large model for deep textual analysis. ~100 GB RAM."),
+  // ── Other ─────────────────────────────────────────────────────────────────
   {
     id:          'docker-health-check',
     name:        'Docker Health Check',
