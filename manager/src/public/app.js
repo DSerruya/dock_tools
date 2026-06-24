@@ -115,10 +115,15 @@ function refreshCurrent() {
 }
 
 /* ── Scripts tab ──────────────────────────────────────────────────────────── */
+
+const pendingScripts = new Set(); // names of scripts with an in-flight action
+let   cachedScripts  = [];        // last successful fetch, used for instant re-renders
+
 async function loadScripts() {
   setLoading(true);
   try {
     const scripts = await api('GET', '/api/scripts');
+    cachedScripts = scripts;
     renderScripts(scripts);
     document.getElementById('refresh-label').textContent = `Updated ${new Date().toLocaleTimeString()}`;
   } catch (e) { toast('Failed to load scripts: ' + e.message, 'error'); }
@@ -171,12 +176,18 @@ function renderCard({ config, status, nextRun, vpnStatus }) {
       ${describeCron(config.schedule) ? `<div style="color:var(--muted);font-size:11px;margin-top:3px">${describeCron(config.schedule)}</div>` : ''}
     </div>` : '';
 
+  const isPending    = pendingScripts.has(config.name);
+  const canStart     = !isPending && status !== 'running'  && status !== 'not_cloned';
+  const canStop      = !isPending && status === 'running';
+  const canRestart   = !isPending && status === 'running';
+  const canRunNow    = !isPending && status !== 'not_cloned';
+
   const writeActions = canWrite() ? (
     isScheduled
-      ? `<button class="btn btn-ghost btn-sm" onclick="runNow('${config.name}')">▶ Run Now</button>`
-      : `<button class="btn btn-ghost btn-sm" onclick="startScript('${config.name}')">▶ Start</button>
-         <button class="btn btn-ghost btn-sm" onclick="stopScript('${config.name}')">⏹ Stop</button>
-         <button class="btn btn-ghost btn-sm" onclick="restartScript('${config.name}')">↺ Restart</button>`
+      ? `<button class="btn btn-ghost btn-sm" onclick="runNow('${config.name}')" ${canRunNow ? '' : 'disabled'}>▶ Run Now</button>`
+      : `<button class="btn btn-ghost btn-sm" onclick="startScript('${config.name}')"   ${canStart   ? '' : 'disabled'}>▶ Start</button>
+         <button class="btn btn-ghost btn-sm" onclick="stopScript('${config.name}')"    ${canStop    ? '' : 'disabled'}>⏹ Stop</button>
+         <button class="btn btn-ghost btn-sm" onclick="restartScript('${config.name}')" ${canRestart ? '' : 'disabled'}>↺ Restart</button>`
   ) : '';
 
   const editBtn = canWrite()
@@ -216,21 +227,43 @@ function renderCard({ config, status, nextRun, vpnStatus }) {
     </div>`;
 }
 
+function _scriptPendingStart(name) {
+  pendingScripts.add(name);
+  if (cachedScripts.length) renderScripts(cachedScripts);
+}
+function _scriptPendingEnd(name) {
+  pendingScripts.delete(name);
+  loadScripts();
+}
+
 async function startScript(name) {
-  try { await api('POST', `/api/scripts/${name}/start`); toast(`${name} started`, 'success'); setTimeout(loadScripts, 1500); }
+  _scriptPendingStart(name);
+  try { await api('POST', `/api/scripts/${name}/start`); toast(`${name} started`, 'success'); }
   catch (e) { toast(e.message, 'error'); }
+  finally { _scriptPendingEnd(name); }
 }
 async function stopScript(name) {
-  try { await api('POST', `/api/scripts/${name}/stop`); toast(`${name} stopped`, 'info'); setTimeout(loadScripts, 1000); }
+  _scriptPendingStart(name);
+  try { await api('POST', `/api/scripts/${name}/stop`); toast(`${name} stopped`, 'info'); }
   catch (e) { toast(e.message, 'error'); }
+  finally { _scriptPendingEnd(name); }
 }
 async function restartScript(name) {
-  try { toast(`Restarting ${name}…`, 'info'); await api('POST', `/api/scripts/${name}/restart`); toast(`${name} restarted`, 'success'); setTimeout(loadScripts, 1500); }
+  _scriptPendingStart(name);
+  toast(`Restarting ${name}…`, 'info');
+  try { await api('POST', `/api/scripts/${name}/restart`); toast(`${name} restarted`, 'success'); }
   catch (e) { toast(e.message, 'error'); }
+  finally { _scriptPendingEnd(name); }
 }
 async function runNow(name) {
-  try { await api('POST', `/api/scripts/${name}/run-now`); toast(`${name} triggered`, 'success'); setTimeout(() => { if (currentTab==='logs') loadLogs(); }, 1000); }
+  _scriptPendingStart(name);
+  try { await api('POST', `/api/scripts/${name}/run-now`); toast(`${name} triggered`, 'success'); }
   catch (e) { toast(e.message, 'error'); }
+  finally {
+    pendingScripts.delete(name);
+    if (cachedScripts.length) renderScripts(cachedScripts);
+    if (currentTab === 'logs') loadLogs();
+  }
 }
 async function editScript(name) {
   try {
