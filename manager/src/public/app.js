@@ -821,30 +821,26 @@ function renderAuditTable(entries) {
 
   const rows = entries.map(e => {
     const meta = ACTION_META[e.action] || { icon: '•', label: e.action, color: 'var(--muted)' };
-    return `<tr>
-      <td style="white-space:nowrap">${fmtDateTime(e.timestamp)}</td>
-      <td><span class="audit-user">👤 ${escHtml(e.user)}</span></td>
-      <td><strong>${escHtml(e.scriptName)}</strong></td>
-      <td><span class="audit-action" style="color:${meta.color}">${meta.icon} ${meta.label}</span></td>
-      <td>${renderChanges(e.changes)}</td>
-      <td>${e.changes?.length ? `<button class="eye-btn" onclick="openChangeDiff('${escHtml(e.id)}')" title="View changes">👁</button>` : ''}</td>
-    </tr>`;
+    const diffBtn = e.changes?.length
+      ? `<button class="eye-btn" onclick="openChangeDiff('${escHtml(e.id)}')" title="View changes">👁</button>`
+      : '';
+    return `<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="min-width:0;flex:1">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
+          <span style="font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap">${fmtDateTime(e.timestamp)}</span>
+          <span style="font-size:11px;color:var(--muted)">👤 ${escHtml(e.user)}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span style="font-size:13px;font-weight:600">${escHtml(e.scriptName)}</span>
+          <span style="font-size:12px;color:${meta.color}">${meta.icon} ${meta.label}</span>
+          ${e.changes?.length ? `<span style="font-size:11px;color:var(--muted)">${renderChanges(e.changes)}</span>` : ''}
+        </div>
+      </div>
+      <div style="flex-shrink:0;margin-top:4px">${diffBtn}</div>
+    </div>`;
   }).join('');
 
-  el.innerHTML = `
-    <table class="runs-table">
-      <thead>
-        <tr>
-          <th>Date</th>
-          <th>User</th>
-          <th>Script</th>
-          <th>Action</th>
-          <th>Changed fields</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>${rows}</tbody>
-    </table>`;
+  el.innerHTML = `<div style="padding:0 2px">${rows}</div>`;
 }
 
 /* ── Logs tab ─────────────────────────────────────────────────────────────── */
@@ -962,7 +958,7 @@ function renderRunsTable(runs) {
     return `<tr>
       <td><strong>${escHtml(r.scriptName)}</strong></td>
       <td>${fmtDateTime(r.startTime)}</td>
-      <td>${r.endTime ? fmtDateTime(r.endTime) : '<span style="color:var(--muted)">—</span>'}${duration ? ` <span style="color:var(--muted);font-size:11px">(${duration})</span>` : ''}</td>
+      <td>${r.endTime ? fmtDateTime(r.endTime) : '<span style="color:var(--muted)">—</span>'}${duration ? ` <span style="color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums">(${duration})</span>` : ''}</td>
       <td><span class="badge badge-${r.language}">${r.language}</span></td>
       <td><span class="run-type">${r.runMode}</span></td>
       <td><span class="run-status ${statusClass}">${statusIcon} ${r.status}</span></td>
@@ -1699,14 +1695,14 @@ function fmtBytes(b) {
 
 function resGauge(used, total, label) {
   const pct   = total ? Math.round(used / total * 100) : 0;
-  const color = pct > 90 ? '#ef4444' : pct > 70 ? '#f59e0b' : 'var(--green)';
-  return `<div style="margin-bottom:12px">
+  const color = pct > 90 ? 'var(--red)' : pct > 70 ? 'var(--yellow)' : 'var(--accent)';
+  return `<div>
     <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px">
-      <span style="font-weight:500">${label}</span>
-      <span style="color:var(--muted)">${fmtBytes(used)} / ${fmtBytes(total)} &nbsp;(${pct}%)</span>
+      <span style="font-weight:600">${label}</span>
+      <span style="color:var(--muted)">${fmtBytes(used)} / ${fmtBytes(total)} (${pct}%)</span>
     </div>
-    <div style="background:var(--border);border-radius:4px;height:8px">
-      <div style="background:${color};height:8px;border-radius:4px;width:${pct}%;transition:width .3s"></div>
+    <div style="background:var(--border);border-radius:4px;height:5px">
+      <div style="background:${color};height:5px;border-radius:4px;width:${pct}%;transition:width .4s"></div>
     </div>
   </div>`;
 }
@@ -1716,32 +1712,35 @@ async function loadResources() {
   try {
     const d = await api('GET', '/api/admin/system/resources');
 
-    let html = resGauge(d.disk.used, d.disk.total, '💿 Disk');
-    html    += resGauge(d.memory.used, d.memory.total, '🧠 Memory');
+    let html = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+      ${resGauge(d.disk.used, d.disk.total, '💿 Disk')}
+      ${resGauge(d.memory.used, d.memory.total, '🧠 Memory')}
+    </div>`;
 
     if (d.containers.length) {
-      html += `<div style="font-size:11px;color:var(--muted);margin:12px 0 6px">Containers</div>
-        <table style="width:100%;border-collapse:collapse;font-size:12px">
-        <tr style="border-bottom:1px solid var(--border)">
-          <th style="text-align:left;padding:4px 8px;color:var(--muted);font-weight:500">Name</th>
-          <th style="text-align:right;padding:4px 8px;color:var(--muted);font-weight:500">Memory</th>
-          <th style="text-align:right;padding:4px 8px;color:var(--muted);font-weight:500">Disk (Δ)</th>
+      html += `<div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:8px">Containers</div>
+        <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:11px">
+        <tr style="background:var(--surface2)">
+          <th style="text-align:left;padding:6px 10px;color:var(--muted);font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.04em">Name</th>
+          <th style="text-align:right;padding:6px 10px;color:var(--muted);font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.04em">Memory</th>
+          <th style="text-align:right;padding:6px 10px;color:var(--muted);font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.04em">Disk (Δ)</th>
         </tr>`;
       for (const c of d.containers.sort((a, b) => b.memUsage - a.memUsage)) {
-        const memPct = c.memLimit ? Math.round(c.memUsage / c.memLimit * 100) : 0;
-        const memColor = memPct > 90 ? '#ef4444' : memPct > 70 ? '#f59e0b' : 'var(--muted)';
-        html += `<tr style="border-bottom:1px solid var(--border)">
-          <td style="padding:4px 8px;font-family:monospace">${escHtml(c.name)}</td>
-          <td style="padding:4px 8px;text-align:right;color:${memColor}">${fmtBytes(c.memUsage)} <span style="color:var(--muted);font-size:10px">(${memPct}%)</span></td>
-          <td style="padding:4px 8px;text-align:right;color:var(--muted)">${c.diskRw ? fmtBytes(c.diskRw) : '—'}</td>
+        const memPct   = c.memLimit ? Math.round(c.memUsage / c.memLimit * 100) : 0;
+        const memColor = memPct > 90 ? 'var(--red)' : memPct > 70 ? 'var(--yellow)' : 'var(--muted)';
+        html += `<tr style="border-top:1px solid var(--border)">
+          <td style="padding:6px 10px;font-family:monospace;font-size:11px">${escHtml(c.name)}</td>
+          <td style="padding:6px 10px;text-align:right;color:${memColor};font-variant-numeric:tabular-nums">${fmtBytes(c.memUsage)} <span style="color:var(--muted);font-size:10px">(${memPct}%)</span></td>
+          <td style="padding:6px 10px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums">${c.diskRw ? fmtBytes(c.diskRw) : '—'}</td>
         </tr>`;
       }
-      html += '</table>';
+      html += '</table></div>';
     }
 
     el.innerHTML = html;
   } catch (e) {
-    el.innerHTML = `<span style="font-size:12px;color:#ef4444">${escHtml(e.message)}</span>`;
+    el.innerHTML = `<span style="font-size:12px;color:var(--red)">${escHtml(e.message)}</span>`;
   }
 }
 
@@ -1798,7 +1797,7 @@ async function vtInit() {
     cfg.versions.forEach((v, i) => {
       const lbl = document.createElement('label');
       lbl.style.cssText = 'display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;padding:2px 8px;border:1px solid var(--border);border-radius:4px;white-space:nowrap';
-      lbl.innerHTML = `<input type="checkbox" value="${v}" ${i < 10 ? 'checked' : ''}> ${v}`;
+      lbl.innerHTML = `<input type="checkbox" value="${v}"> ${v}`;
       el.appendChild(lbl);
     });
     vtRefresh();
