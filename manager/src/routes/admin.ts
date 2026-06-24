@@ -1,7 +1,5 @@
 import { Router } from 'express';
-import { spawn, exec } from 'child_process';
-import { promisify }   from 'util';
-const execAsync = promisify(exec);
+import { spawn } from 'child_process';
 import * as fs     from 'fs';
 import * as os     from 'os';
 import * as path   from 'path';
@@ -755,13 +753,13 @@ async function execOnContainer(
   cmd: string[],
   timeoutMs: number,
 ): Promise<{ output: string; exitCode: number }> {
-  const exec   = await container.exec({ Cmd: cmd, AttachStdout: true, AttachStderr: true, Tty: true });
-  const stream = await exec.start({ hijack: true, stdin: false });
+  const dockerExec = await container.exec({ Cmd: cmd, AttachStdout: true, AttachStderr: true, Tty: true });
+  const stream = await dockerExec.start({ hijack: true, stdin: false });
   return new Promise(resolve => {
     let output = '', settled = false;
     const done = async () => {
       if (settled) return; settled = true;
-      try { const i = await exec.inspect(); resolve({ output, exitCode: (i as any).ExitCode ?? 0 }); }
+      try { const i = await dockerExec.inspect(); resolve({ output, exitCode: (i as any).ExitCode ?? 0 }); }
       catch { resolve({ output, exitCode: 0 }); }
     };
     const timer = setTimeout(() => { if (!settled) { settled = true; resolve({ output, exitCode: -1 }); } }, timeoutMs);
@@ -938,7 +936,13 @@ router.post('/ollama/update', async (_req, res) => {
 router.get('/system/resources', async (_req, res) => {
   try {
     // Disk — read from inside the container (overlay maps to host disk)
-    const { stdout: dfOut } = await execAsync('df -B1 /').catch(() => ({ stdout: '' }));
+    const dfOut = await new Promise<string>(resolve => {
+      const proc = spawn('df', ['-B1', '/']);
+      let out = '';
+      proc.stdout?.on('data', (d: Buffer) => { out += d.toString(); });
+      proc.on('close', () => resolve(out));
+      proc.on('error', () => resolve(''));
+    });
     const dfParts  = (dfOut.trim().split('\n')[1] || '').split(/\s+/);
     const diskTotal = parseInt(dfParts[1]) || 0;
     const diskUsed  = parseInt(dfParts[2]) || 0;
