@@ -1747,7 +1747,8 @@ async function vtInit() {
   try {
     const cfg = await api('GET', '/api/admin/ollama/version-test/config');
     const sel  = document.getElementById('vt-model');
-    sel.innerHTML = cfg.models.map(m => `<option value="${m}">${m}</option>`).join('');
+    sel.innerHTML = '<option value="">Select a model…</option>' +
+      cfg.models.map(m => `<option value="${m}">${m}</option>`).join('');
     const el   = document.getElementById('vt-versions');
     cfg.versions.forEach((v, i) => {
       const lbl = document.createElement('label');
@@ -1769,6 +1770,7 @@ async function vtRun() {
   const versions = vtSelectedVersions();
   if (!versions.length) { toast('Select at least one version', 'error'); return; }
   const model = document.getElementById('vt-model').value;
+  if (!model) { toast('Select a model first', 'error'); return; }
   try {
     await api('POST', '/api/admin/ollama/version-test/run', { versions, model });
     vtStartPolling();
