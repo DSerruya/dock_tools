@@ -9,6 +9,7 @@ let scriptModalMode    = 'add';  // 'add' | 'edit'
 let editingScriptName  = null;   // name of script being edited
 let _pendingVpnFile    = null;   // File object staged for upload on add-mode submit
 let _vpnConfigured     = false;  // whether current edit target has an .ovpn on server
+let currentLogViewer   = { runId: null, scriptName: null }; // run shown in the log viewer modal
 
 /* ── Cron helpers ────────────────────────────────────────────────────────── */
 const CRON_DESCS = [
@@ -293,6 +294,18 @@ async function exportScripts() {
 
 async function downloadScript(name) {
   await triggerDownload(`/api/scripts/${encodeURIComponent(name)}/download`, `${name}.tar.gz`);
+}
+
+async function downloadRunLog(runId, scriptName) {
+  try {
+    const { content } = await api('GET', `/api/logs/${encodeURIComponent(runId)}/content`);
+    const blob = new Blob([content || ''], { type: 'text/plain' });
+    const a    = document.createElement('a');
+    a.href     = URL.createObjectURL(blob);
+    a.download = `${scriptName}-${runId}.txt`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  } catch (e) { toast('Download failed: ' + e.message, 'error'); }
 }
 
 async function deleteScript(name) {
@@ -962,7 +975,10 @@ function renderRunsTable(runs) {
       <td><span class="badge badge-${r.language}">${r.language}</span></td>
       <td><span class="run-type">${r.runMode}</span></td>
       <td><span class="run-status ${statusClass}">${statusIcon} ${r.status}</span></td>
-      <td><button class="eye-btn" onclick="openLogViewer('${escHtml(r.runId)}','${escHtml(r.scriptName)}','${r.status}','${escHtml(r.startTime)}')" title="View logs">👁</button></td>
+      <td>
+        <button class="eye-btn" onclick="openLogViewer('${escHtml(r.runId)}','${escHtml(r.scriptName)}','${r.status}','${escHtml(r.startTime)}')" title="View logs">👁</button>
+        <button class="eye-btn" onclick="downloadRunLog('${escHtml(r.runId)}','${escHtml(r.scriptName)}')" title="Download log as .txt">⬇</button>
+      </td>
     </tr>`;
   }).join('');
 
@@ -986,6 +1002,7 @@ function renderRunsTable(runs) {
 /* ── Log Viewer (SSE) ─────────────────────────────────────────────────────── */
 function openLogViewer(runId, scriptName, status, startTime) {
   closeLogViewer();
+  currentLogViewer = { runId, scriptName };
 
   document.getElementById('log-viewer-modal').classList.remove('hidden');
   document.getElementById('lv-title').textContent  = `Logs — ${scriptName}`;
@@ -1131,6 +1148,17 @@ function scrollLogsToBottom() {
   const output = document.getElementById('lv-output');
   output.scrollTop = output.scrollHeight;
   autoScroll = true;
+}
+
+function downloadCurrentLog() {
+  const text = document.getElementById('lv-output').textContent || '';
+  const { runId, scriptName } = currentLogViewer;
+  const blob = new Blob([text], { type: 'text/plain' });
+  const a    = document.createElement('a');
+  a.href     = URL.createObjectURL(blob);
+  a.download = `${scriptName || 'log'}-${runId || 'current'}.txt`;
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
 
 /* ── Add / Edit Script Modal ─────────────────────────────────────────────── */
