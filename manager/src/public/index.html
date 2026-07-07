@@ -579,6 +579,39 @@
       </div>
     </div>
 
+    <!-- OpenVPN Connection card -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:24px">
+      <div style="font-size:14px;font-weight:600;margin-bottom:4px">🔒 OpenVPN Connection</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5">
+        Upload a global .ovpn profile (separate from any per-script VPN config) and test that it actually connects and can transfer data through the tunnel.
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+        <span id="avpn-file-status" style="font-size:12px;color:var(--muted)">No .ovpn file uploaded</span>
+        <label class="btn btn-ghost btn-sm" style="cursor:pointer;margin:0">
+          Upload .ovpn
+          <input type="file" id="avpn-file-input" accept=".ovpn" style="display:none" onchange="avpnFileSelected()" />
+        </label>
+        <button class="btn btn-ghost btn-sm" id="avpn-remove-btn" style="display:none;color:var(--red)" onclick="avpnRemoveConfig()">Remove</button>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+        <button class="btn btn-primary btn-sm" id="avpn-run-btn" onclick="avpnRun()">▶ Test Connection</button>
+        <button class="btn btn-ghost btn-sm" id="avpn-stop-btn" style="display:none" onclick="avpnStop()">⏹ Stop</button>
+        <button class="btn btn-ghost btn-sm" id="avpn-clean-btn" onclick="avpnClean()" title="Remove a stuck test container">🗑 Clean Test Container</button>
+        <span id="avpn-status-badge" style="font-size:12px"></span>
+      </div>
+      <div id="avpn-result" style="font-size:12px;margin-bottom:8px;line-height:1.6"></div>
+      <div id="avpn-log-wrap" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;cursor:pointer" onclick="avpnToggleLog()">
+          <span style="font-size:12px;font-weight:600;color:var(--muted)">Test log</span>
+          <span id="avpn-log-toggle" style="font-size:11px;color:var(--muted)">▾ show</span>
+        </div>
+        <div id="avpn-log"
+             style="display:none;font-family:'Courier New',monospace;font-size:11px;
+                    background:#0a0c12;border:1px solid var(--border);border-radius:6px;
+                    padding:10px;max-height:260px;overflow-y:auto;color:#a3e635;white-space:pre-wrap;word-break:break-all"></div>
+      </div>
+    </div>
+
     <div class="table-toolbar">
       <div>
         <h2 style="font-size:16px;font-weight:600">User Management</h2>

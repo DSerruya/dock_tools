@@ -85,7 +85,7 @@ function showTab(tab) {
   if (tab === 'scripts')    loadScripts();
   else if (tab === 'logs')  loadLogs();
   else if (tab === 'audit') loadAudit();
-  else if (tab === 'admin') { loadUsers(); loadSystemVersion(); loadAddons(); loadResources(); vtInit(); ovLoad(); }
+  else if (tab === 'admin') { loadUsers(); loadSystemVersion(); loadAddons(); loadResources(); vtInit(); ovLoad(); avpnInit(); }
 }
 
 /* ── Role helpers ──────────────────────────────────────────────────────────── */
@@ -1893,6 +1893,144 @@ async function vtRefresh() {
   }
   html += '</table>';
   table.innerHTML = html;
+}
+
+/* ── OpenVPN Connection (admin, global) ─────────────────────────────────── */
+
+let avpnPollTimer = null;
+
+async function avpnInit() {
+  await avpnLoadConfigStatus();
+  const state = await api('GET', '/api/admin/vpn/test/status').catch(() => null);
+  if (state && state.running) avpnStartPolling();
+  else avpnRefresh();
+}
+
+async function avpnLoadConfigStatus() {
+  try {
+    const { configured } = await api('GET', '/api/admin/vpn/config');
+    document.getElementById('avpn-file-status').textContent = configured ? '.ovpn configured' : 'No .ovpn file uploaded';
+    document.getElementById('avpn-remove-btn').style.display = configured ? '' : 'none';
+  } catch (e) { console.warn('avpnLoadConfigStatus:', e.message); }
+}
+
+function avpnFileSelected() {
+  const input = document.getElementById('avpn-file-input');
+  const file  = input.files[0];
+  if (!file) return;
+  if (!file.name.endsWith('.ovpn')) {
+    toast('Only .ovpn files are accepted', 'error');
+    input.value = '';
+    return;
+  }
+  const fd = new FormData();
+  fd.append('ovpn', file);
+  fetch('/api/admin/vpn/config', { method: 'POST', body: fd })
+    .then(r => r.json().then(data => ({ ok: r.ok, data })))
+    .then(({ ok, data }) => {
+      if (!ok) throw new Error(data.error || 'Upload failed');
+      toast('.ovpn uploaded', 'success');
+      avpnLoadConfigStatus();
+    })
+    .catch(e => toast('Upload failed: ' + e.message, 'error'));
+  input.value = '';
+}
+
+async function avpnRemoveConfig() {
+  if (!confirm('Remove the uploaded OpenVPN config?')) return;
+  try {
+    await api('DELETE', '/api/admin/vpn/config');
+    toast('.ovpn removed', 'info');
+    avpnLoadConfigStatus();
+    document.getElementById('avpn-result').innerHTML = '';
+  } catch (e) { toast('Failed: ' + e.message, 'error'); }
+}
+
+async function avpnRun() {
+  try {
+    await api('POST', '/api/admin/vpn/test/run');
+    document.getElementById('avpn-result').innerHTML = '';
+    avpnStartPolling();
+  } catch (e) { toast('Failed: ' + e.message, 'error'); }
+}
+
+async function avpnStop() {
+  await api('POST', '/api/admin/vpn/test/stop').catch(() => {});
+  toast('Stop requested', 'info');
+}
+
+async function avpnClean() {
+  if (!confirm('Remove the OpenVPN test container?')) return;
+  try {
+    const r = await api('POST', '/api/admin/vpn/test/clean');
+    toast(r.message, 'success');
+    avpnRefresh();
+  } catch (e) { toast('Failed: ' + e.message, 'error'); }
+}
+
+function avpnStartPolling() {
+  if (avpnPollTimer) clearInterval(avpnPollTimer);
+  avpnPollTimer = setInterval(avpnRefresh, 1500);
+  avpnRefresh();
+}
+function avpnStopPolling() {
+  if (avpnPollTimer) { clearInterval(avpnPollTimer); avpnPollTimer = null; }
+}
+
+function avpnToggleLog() {
+  const box    = document.getElementById('avpn-log');
+  const toggle = document.getElementById('avpn-log-toggle');
+  const shown  = box.style.display !== 'none';
+  box.style.display  = shown ? 'none' : '';
+  toggle.textContent = shown ? '▾ show' : '▴ hide';
+  if (!shown) box.scrollTop = box.scrollHeight;
+}
+
+const AVPN_STATUS = {
+  idle:          { label: '— Idle',              color: 'var(--muted)' },
+  pulling_image: { label: '⬇ Pulling image',     color: 'var(--accent)' },
+  starting:      { label: '⟳ Starting',          color: 'var(--accent)' },
+  connecting:    { label: '⟳ Connecting…',       color: 'var(--accent)' },
+  testing_data:  { label: '⟳ Testing data flow', color: 'var(--accent)' },
+  success:       { label: '✓ Connected — data transferred', color: 'var(--green)' },
+  partial:       { label: '⚠ Connected — routing unconfirmed', color: '#f59e0b' },
+  failed:        { label: '✗ Failed',            color: '#ef4444' },
+};
+
+async function avpnRefresh() {
+  const state = await api('GET', '/api/admin/vpn/test/status').catch(() => null);
+  if (!state) return;
+
+  document.getElementById('avpn-run-btn').disabled       = state.running;
+  document.getElementById('avpn-stop-btn').style.display = state.running ? '' : 'none';
+  if (!state.running) avpnStopPolling();
+
+  const s = AVPN_STATUS[state.status] || { label: state.status, color: 'var(--muted)' };
+  const badge = document.getElementById('avpn-status-badge');
+  badge.textContent = s.label;
+  badge.style.color = s.color;
+
+  const resultEl = document.getElementById('avpn-result');
+  if (state.status === 'success' && state.result) {
+    resultEl.innerHTML = `<span style="color:var(--green)">✓ Connected and transferred data through the tunnel.</span><br>
+      Exit IP: <code>${escHtml(state.result.publicIp || '—')}</code> ·
+      rx: ${state.result.rxBytesDelta} bytes · tx: ${state.result.txBytesDelta} bytes`;
+  } else if (state.status === 'partial' && state.result) {
+    resultEl.innerHTML = `<span style="color:#f59e0b">⚠ VPN connected, but full-tunnel routing could not be confirmed (split-tunnel config?).</span><br>
+      ${state.result.publicIp ? `Observed IP: <code>${escHtml(state.result.publicIp)}</code> · ` : ''}
+      rx: ${state.result.rxBytesDelta} bytes · tx: ${state.result.txBytesDelta} bytes`;
+  } else if (state.status === 'failed' && state.error) {
+    resultEl.innerHTML = `<span style="color:#ef4444">✗ ${escHtml(state.error)}</span>`;
+  } else {
+    resultEl.innerHTML = '';
+  }
+
+  if (state.log) {
+    document.getElementById('avpn-log-wrap').style.display = '';
+    const log = document.getElementById('avpn-log');
+    log.textContent = state.log;
+    if (state.running) log.scrollTop = log.scrollHeight;
+  }
 }
 
 /* ── Ollama CPU diagnostics ──────────────────────────────────────────────── */

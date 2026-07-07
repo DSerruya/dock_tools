@@ -4,6 +4,7 @@ import * as fs     from 'fs';
 import * as os     from 'os';
 import * as path   from 'path';
 import Dockerode   from 'dockerode';
+import multer      from 'multer';
 import simpleGit   from 'simple-git';
 import * as userService  from '../services/userService';
 import * as auditService from '../services/auditService';
@@ -1040,6 +1041,239 @@ router.post('/ollama/reset-flags', async (_req, res) => {
       OLLAMA_FLASH_ATTENTION: null,
     });
     res.json({ message: 'All CPU flags removed and Ollama restarted' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── OpenVPN connection test ───────────────────────────────────────────────────
+//
+// Lets an admin upload a standalone .ovpn profile (not tied to any script) and
+// verify it actually works: spins up a throwaway container that connects, then
+// proves data moves across the tunnel by reading tun0's kernel byte counters
+// before/after a request instead of trusting the "connected" log line alone.
+
+const ADMIN_DATA_DIR   = process.env.DATA_DIR || '/app/scripts-data';
+const ADMIN_VPN_DIR    = path.join(ADMIN_DATA_DIR, 'admin-vpn');
+const ADMIN_VPN_CONFIG = path.join(ADMIN_VPN_DIR, 'config.ovpn');
+const ADMIN_VPN_UPLOAD = multer({ storage: multer.memoryStorage(), limits: { fileSize: 512 * 1024 } });
+
+// Binds passed to docker.createContainer() are resolved by the daemon against the
+// HOST filesystem, not this container's — mirrors dockerService.ts's HOST_SCRIPTS_DATA_PATH.
+const ADMIN_VPN_HOST_CONFIG = path.join(
+  process.env.HOST_SCRIPTS_DATA_PATH || '/app/scripts-data', 'admin-vpn', 'config.ovpn',
+);
+
+const ADMIN_VPN_IMAGE     = 'alpine:3.19';
+const ADMIN_VPN_CONTAINER = 'admin-vpn-test';
+const ADMIN_VPN_NETWORK   = process.env.DOCKER_NETWORK || 'bridge';
+
+type AdminVpnStatus =
+  | 'idle' | 'pulling_image' | 'starting' | 'connecting' | 'testing_data'
+  | 'success' | 'partial' | 'failed';
+
+interface AdminVpnResult {
+  publicIp?: string;
+  rxBytesDelta: number;
+  txBytesDelta: number;
+  fullTunnelRouting: boolean;
+}
+
+interface AdminVpnState {
+  running: boolean;
+  status:  AdminVpnStatus;
+  log:     string;
+  result?: AdminVpnResult;
+  error?:  string;
+  aborted: boolean;
+}
+
+let adminVpnState: AdminVpnState = { running: false, status: 'idle', log: '', aborted: false };
+
+function adminVpnLog(line: string): void {
+  adminVpnState.log += line + '\n';
+}
+
+async function cleanupAdminVpnContainer(): Promise<void> {
+  try {
+    const c    = docker.getContainer(ADMIN_VPN_CONTAINER);
+    const info = await c.inspect().catch(() => null);
+    if (info) {
+      if (info.State.Running) await c.stop({ t: 5 }).catch(() => {});
+      await c.remove({ force: true }).catch(() => {});
+    }
+  } catch { /* nothing to clean up */ }
+}
+
+async function pullDockerImage(image: string): Promise<void> {
+  try { await docker.getImage(image).inspect(); return; } catch {}
+  await new Promise<void>((resolve, reject) => {
+    docker.pull(image, (err: Error | null, stream: NodeJS.ReadableStream) => {
+      if (err) return reject(err);
+      docker.modem.followProgress(stream, (e: Error | null) => e ? reject(e) : resolve());
+    });
+  });
+}
+
+function readTunByteCounters(output: string): { rx: number; tx: number } | null {
+  const parts = output.trim().split(/\s+/).map(Number);
+  if (parts.length < 2 || parts.some(Number.isNaN)) return null;
+  return { rx: parts[0], tx: parts[1] };
+}
+
+async function runAdminVpnTest(): Promise<void> {
+  adminVpnState = { running: true, status: 'starting', log: '', aborted: false };
+  try {
+    await cleanupAdminVpnContainer();
+
+    adminVpnState.status = 'pulling_image';
+    adminVpnLog(`Pulling ${ADMIN_VPN_IMAGE}...`);
+    await pullDockerImage(ADMIN_VPN_IMAGE);
+
+    adminVpnState.status = 'starting';
+    adminVpnLog('Starting VPN test container...');
+    const container = await docker.createContainer({
+      name:  ADMIN_VPN_CONTAINER,
+      Image: ADMIN_VPN_IMAGE,
+      Tty:   true, // avoid stream demuxing when polling container.logs()
+      Cmd:   ['sh', '-c', 'apk add --no-cache openvpn curl >/dev/null 2>&1; exec openvpn --config /vpn/config.ovpn'],
+      HostConfig: {
+        Binds:   [`${ADMIN_VPN_HOST_CONFIG}:/vpn/config.ovpn:ro`],
+        CapAdd:  ['NET_ADMIN'],
+        Devices: [{ PathOnHost: '/dev/net/tun', PathInContainer: '/dev/net/tun', CgroupPermissions: 'rwm' }],
+      },
+      NetworkingConfig: {
+        EndpointsConfig: { [ADMIN_VPN_NETWORK]: {} },
+      },
+    });
+    await container.start();
+
+    adminVpnState.status = 'connecting';
+    adminVpnLog('Waiting for VPN handshake...');
+    let connected = false;
+    for (let i = 0; i < 30; i++) {
+      if (adminVpnState.aborted) { adminVpnLog('Aborted.'); break; }
+      await new Promise(r => setTimeout(r, 1000));
+      const buf  = await container.logs({ stdout: true, stderr: true, tail: 100 }).catch(() => null) as unknown as Buffer | null;
+      const text = buf ? buf.toString('utf8') : '';
+      if (text.includes('Initialization Sequence Completed')) { connected = true; break; }
+    }
+
+    if (adminVpnState.aborted) {
+      adminVpnState.status = 'failed';
+      adminVpnState.error  = 'Test aborted';
+      return;
+    }
+
+    if (!connected) {
+      const buf = await container.logs({ stdout: true, stderr: true, tail: 40 }).catch(() => null) as unknown as Buffer | null;
+      if (buf) adminVpnLog(buf.toString('utf8'));
+      adminVpnState.status = 'failed';
+      adminVpnState.error  = 'VPN did not connect within 30s — see log for details';
+      return;
+    }
+
+    adminVpnLog('VPN connected (Initialization Sequence Completed).');
+    adminVpnState.status = 'testing_data';
+
+    const before = readTunByteCounters(await dockerExecCollect(ADMIN_VPN_CONTAINER, [
+      'sh', '-c', 'cat /sys/class/net/tun0/statistics/rx_bytes /sys/class/net/tun0/statistics/tx_bytes 2>/dev/null || echo "0 0"',
+    ])) || { rx: 0, tx: 0 };
+
+    adminVpnLog('Requesting data over the tunnel interface (curl --interface tun0)...');
+    const tunCurl = await dockerExecCollect(ADMIN_VPN_CONTAINER, [
+      'sh', '-c', 'curl -s --interface tun0 --max-time 10 https://api.ipify.org || echo __CURL_FAILED__',
+    ]);
+    const fullTunnelRouting = /^\d+\.\d+\.\d+\.\d+$/.test(tunCurl.trim());
+    let publicIp = fullTunnelRouting ? tunCurl.trim() : undefined;
+
+    if (!fullTunnelRouting) {
+      adminVpnLog('No full-internet route via tun0 (likely a split-tunnel VPN) — falling back to a general connectivity check.');
+      const generalCurl = await dockerExecCollect(ADMIN_VPN_CONTAINER, [
+        'sh', '-c', 'curl -s --max-time 10 https://api.ipify.org || echo __CURL_FAILED__',
+      ]);
+      if (/^\d+\.\d+\.\d+\.\d+$/.test(generalCurl.trim())) publicIp = generalCurl.trim();
+    }
+
+    const after = readTunByteCounters(await dockerExecCollect(ADMIN_VPN_CONTAINER, [
+      'sh', '-c', 'cat /sys/class/net/tun0/statistics/rx_bytes /sys/class/net/tun0/statistics/tx_bytes 2>/dev/null || echo "0 0"',
+    ])) || before;
+
+    const rxBytesDelta = Math.max(0, after.rx - before.rx);
+    const txBytesDelta = Math.max(0, after.tx - before.tx);
+    adminVpnLog(`tun0 bytes transferred during test — rx: ${rxBytesDelta}, tx: ${txBytesDelta}`);
+
+    if (fullTunnelRouting && (rxBytesDelta > 0 || txBytesDelta > 0)) {
+      adminVpnState.status = 'success';
+      adminVpnState.result = { publicIp, rxBytesDelta, txBytesDelta, fullTunnelRouting: true };
+      adminVpnLog(`Success — traffic routed through the VPN, exit IP: ${publicIp}`);
+    } else if (rxBytesDelta > 0 || txBytesDelta > 0 || publicIp) {
+      adminVpnState.status = 'partial';
+      adminVpnState.result = { publicIp, rxBytesDelta, txBytesDelta, fullTunnelRouting: false };
+      adminVpnLog('Partial success — VPN connected but full internet routing through the tunnel could not be confirmed (likely a split-tunnel config).');
+    } else {
+      adminVpnState.status = 'failed';
+      adminVpnState.error  = 'VPN connected but no data could be transferred through the tunnel';
+    }
+  } catch (err: any) {
+    adminVpnState.status = 'failed';
+    adminVpnState.error  = err.message;
+    adminVpnLog(`Error: ${err.message}`);
+  } finally {
+    await cleanupAdminVpnContainer();
+    adminVpnState.running = false;
+  }
+}
+
+// GET /api/admin/vpn/config
+router.get('/vpn/config', (_req, res) => {
+  res.json({ configured: fs.existsSync(ADMIN_VPN_CONFIG) });
+});
+
+// POST /api/admin/vpn/config — upload a global .ovpn profile
+router.post('/vpn/config', ADMIN_VPN_UPLOAD.single('ovpn'), (req, res) => {
+  if (adminVpnState.running) return res.status(409).json({ error: 'A test is currently running' });
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+  if (!req.file.originalname.endsWith('.ovpn'))
+    return res.status(400).json({ error: 'File must be a .ovpn file' });
+
+  if (!fs.existsSync(ADMIN_VPN_DIR)) fs.mkdirSync(ADMIN_VPN_DIR, { recursive: true });
+  fs.writeFileSync(ADMIN_VPN_CONFIG, req.file.buffer);
+  adminVpnState = { running: false, status: 'idle', log: '', aborted: false };
+  res.json({ message: 'VPN config uploaded' });
+});
+
+// DELETE /api/admin/vpn/config
+router.delete('/vpn/config', (_req, res) => {
+  if (adminVpnState.running) return res.status(409).json({ error: 'A test is currently running' });
+  if (fs.existsSync(ADMIN_VPN_CONFIG)) fs.unlinkSync(ADMIN_VPN_CONFIG);
+  adminVpnState = { running: false, status: 'idle', log: '', aborted: false };
+  res.json({ message: 'VPN config removed' });
+});
+
+// GET /api/admin/vpn/test/status
+router.get('/vpn/test/status', (_req, res) => res.json(adminVpnState));
+
+// POST /api/admin/vpn/test/run
+router.post('/vpn/test/run', (_req, res) => {
+  if (adminVpnState.running) return res.status(409).json({ error: 'Test already running' });
+  if (!fs.existsSync(ADMIN_VPN_CONFIG)) return res.status(400).json({ error: 'Upload a .ovpn config first' });
+  res.json({ message: 'Test started' });
+  setImmediate(() => runAdminVpnTest());
+});
+
+// POST /api/admin/vpn/test/stop
+router.post('/vpn/test/stop', (_req, res) => {
+  adminVpnState.aborted = true;
+  res.json({ message: 'Stop requested' });
+});
+
+// POST /api/admin/vpn/test/clean — force-remove a stuck test container
+router.post('/vpn/test/clean', async (_req, res) => {
+  try {
+    await cleanupAdminVpnContainer();
+    adminVpnState = { running: false, status: 'idle', log: '', aborted: false };
+    res.json({ message: 'Cleaned up' });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
