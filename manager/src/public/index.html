@@ -647,6 +647,86 @@
         <button class="btn btn-ghost btn-sm" onclick="ollamaSetMemory()">Apply</button>
       </div>
     </div>
+
+    <!-- SQL over VPN Test card -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:24px">
+      <div style="font-size:14px;font-weight:600;margin-bottom:4px">🗄️ SQL over VPN Test</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5">
+        Connect through a VPN tunnel and run a query against a database on the other side —
+        confirms firewall rules and reachability before wiring a script to a client's DB.
+      </div>
+
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+        <span id="sqlt-file-status" style="font-size:12px;color:var(--muted)">No .ovpn file uploaded</span>
+        <label class="btn btn-ghost btn-sm" style="cursor:pointer;margin:0">
+          Upload .ovpn
+          <input type="file" id="sqlt-file-input" accept=".ovpn" style="display:none" onchange="sqltFileSelected()" />
+        </label>
+        <button class="btn btn-ghost btn-sm" id="sqlt-remove-btn" style="display:none;color:var(--red)" onclick="sqltRemoveConfig()">Remove</button>
+        <span style="font-size:11px;color:var(--muted)">Separate from the global OpenVPN profile above.</span>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Engine</label>
+          <select id="sqlt-engine" onchange="sqltEngineChanged()">
+            <option value="postgres">PostgreSQL</option>
+            <option value="mysql">MySQL / MariaDB</option>
+            <option value="mssql">SQL Server</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Database</label>
+          <input id="sqlt-database" type="text" placeholder="e.g. onebeat_prod" />
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Host</label>
+          <input id="sqlt-host" type="text" placeholder="e.g. 10.8.0.14 or db.internal" />
+        </div>
+        <div class="form-group">
+          <label>Port</label>
+          <input id="sqlt-port" type="text" placeholder="5432" value="5432" />
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Username</label>
+          <input id="sqlt-username" type="text" placeholder="e.g. readonly_test" autocomplete="off" />
+        </div>
+        <div class="form-group">
+          <label>Password</label>
+          <input id="sqlt-password" type="password" autocomplete="off" />
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin:-6px 0 12px">
+        Credentials are held in memory for this run only — never written to disk or included in the log below.
+      </div>
+
+      <div class="form-group">
+        <label>Query</label>
+        <textarea id="sqlt-query" placeholder="SELECT ..." style="font-family:'Courier New',monospace;font-size:12px;min-height:70px;resize:vertical"></textarea>
+      </div>
+
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+        <button class="btn btn-primary btn-sm" id="sqlt-run-btn" onclick="sqltRun()">▶ Run Query</button>
+        <button class="btn btn-ghost btn-sm" id="sqlt-stop-btn" style="display:none" onclick="sqltStop()">⏹ Stop</button>
+        <button class="btn btn-ghost btn-sm" id="sqlt-clean-btn" onclick="sqltClean()" title="Remove a stuck test container">🗑 Clean Test Container</button>
+        <span id="sqlt-status-badge" style="font-size:12px"></span>
+      </div>
+      <div id="sqlt-result" style="font-size:12px;margin-bottom:8px;line-height:1.6"></div>
+      <div id="sqlt-log-wrap" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;cursor:pointer" onclick="sqltToggleLog()">
+          <span style="font-size:12px;font-weight:600;color:var(--muted)">Query log</span>
+          <span id="sqlt-log-toggle" style="font-size:11px;color:var(--muted)">▾ show</span>
+        </div>
+        <div id="sqlt-log"
+             style="display:none;font-family:'Courier New',monospace;font-size:11px;
+                    background:#0a0c12;border:1px solid var(--border);border-radius:6px;
+                    padding:10px;max-height:260px;overflow-y:auto;color:#a3e635;white-space:pre-wrap;word-break:break-all"></div>
+      </div>
+    </div>
   </div>
 
   <!-- ── Audit / Changes tab ── -->

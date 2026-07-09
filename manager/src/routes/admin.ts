@@ -1279,4 +1279,261 @@ router.post('/vpn/test/clean', async (_req, res) => {
   }
 });
 
+// ── SQL over VPN test ─────────────────────────────────────────────────────────
+//
+// Lets an admin upload a dedicated .ovpn profile (separate from the general
+// connectivity one above), connect through it, and run a single ad-hoc query
+// against a database on the other side — confirms firewall/reachability
+// before wiring a script to a client's DB.
+
+const SQLT_VPN_DIR    = path.join(ADMIN_DATA_DIR, 'sql-test-vpn');
+const SQLT_VPN_CONFIG = path.join(SQLT_VPN_DIR, 'config.ovpn');
+const SQLT_VPN_UPLOAD = multer({ storage: multer.memoryStorage(), limits: { fileSize: 512 * 1024 } });
+
+const SQLT_VPN_HOST_CONFIG = path.join(
+  process.env.HOST_SCRIPTS_DATA_PATH || '/app/scripts-data', 'sql-test-vpn', 'config.ovpn',
+);
+
+const SQLT_IMAGE     = 'alpine:3.19';
+const SQLT_CONTAINER = 'admin-sqltest';
+const SQLT_NETWORK   = process.env.DOCKER_NETWORK || 'bridge';
+const SQLT_PACKAGES  = 'openvpn postgresql-client mariadb-client freetds';
+
+type SqlEngine = 'postgres' | 'mysql' | 'mssql';
+
+type SqlTestStatus =
+  | 'idle' | 'pulling_image' | 'starting' | 'connecting_vpn' | 'connecting_db'
+  | 'running_query' | 'success' | 'failed';
+
+interface SqlTestState {
+  running: boolean;
+  status:  SqlTestStatus;
+  log:     string;
+  error?:  string;
+  aborted: boolean;
+}
+
+let sqlTestState: SqlTestState = { running: false, status: 'idle', log: '', aborted: false };
+
+function sqlTestLog(line: string): void {
+  sqlTestState.log += line + '\n';
+}
+
+async function cleanupSqlTestContainer(): Promise<void> {
+  try {
+    const c    = docker.getContainer(SQLT_CONTAINER);
+    const info = await c.inspect().catch(() => null);
+    if (info) {
+      if (info.State.Running) await c.stop({ t: 5 }).catch(() => {});
+      await c.remove({ force: true }).catch(() => {});
+    }
+  } catch { /* nothing to clean up */ }
+}
+
+// Cmd is always passed straight to execve — never through `sh -c` — so
+// connection fields and the query itself can't be reinterpreted as shell
+// syntax. Secrets go through Env, not argv, to keep them out of `docker top`.
+async function dockerExecRun(
+  containerName: string,
+  cmd: string[],
+  opts: { env?: string[]; stdin?: string } = {},
+): Promise<{ out: string; exitCode: number | null }> {
+  const exec = await docker.getContainer(containerName).exec({
+    Cmd: cmd, Env: opts.env, Tty: true,
+    AttachStdin: !!opts.stdin, AttachStdout: true, AttachStderr: true,
+  });
+  const stream = await exec.start({ hijack: true, stdin: !!opts.stdin });
+  if (opts.stdin) {
+    stream.write(opts.stdin);
+    stream.end();
+  }
+  const out = await new Promise<string>((resolve, reject) => {
+    let buf = '';
+    stream.on('data',  (d: Buffer) => { buf += d.toString(); });
+    stream.on('end',   () => resolve(buf));
+    stream.on('error', reject);
+  });
+  const info = await exec.inspect().catch(() => null);
+  return { out, exitCode: info ? info.ExitCode : null };
+}
+
+async function runSqlOverVpnTest(params: {
+  engine: SqlEngine; host: string; port: string; database: string;
+  username: string; password: string; query: string;
+}): Promise<void> {
+  sqlTestState = { running: true, status: 'starting', log: '', aborted: false };
+  try {
+    await cleanupSqlTestContainer();
+
+    sqlTestState.status = 'pulling_image';
+    sqlTestLog(`Pulling ${SQLT_IMAGE}...`);
+    await pullDockerImage(SQLT_IMAGE);
+
+    sqlTestState.status = 'starting';
+    sqlTestLog('Starting VPN + SQL client container...');
+    const container = await docker.createContainer({
+      name:  SQLT_CONTAINER,
+      Image: SQLT_IMAGE,
+      Tty:   true, // avoid stream demuxing when polling container.logs()
+      Cmd:   ['sh', '-c', `apk add --no-cache ${SQLT_PACKAGES} >/dev/null 2>&1; exec openvpn --config /vpn/config.ovpn`],
+      HostConfig: {
+        Binds:   [`${SQLT_VPN_HOST_CONFIG}:/vpn/config.ovpn:ro`],
+        CapAdd:  ['NET_ADMIN'],
+        Devices: [{ PathOnHost: '/dev/net/tun', PathInContainer: '/dev/net/tun', CgroupPermissions: 'rwm' }],
+      },
+      NetworkingConfig: { EndpointsConfig: { [SQLT_NETWORK]: {} } },
+    });
+    await container.start();
+
+    sqlTestState.status = 'connecting_vpn';
+    sqlTestLog('Waiting for VPN handshake...');
+    let connected = false;
+    for (let i = 0; i < 30; i++) {
+      if (sqlTestState.aborted) { sqlTestLog('Aborted.'); break; }
+      await new Promise(r => setTimeout(r, 1000));
+      const buf  = await container.logs({ stdout: true, stderr: true, tail: 100 }).catch(() => null) as unknown as Buffer | null;
+      const text = buf ? buf.toString('utf8') : '';
+      if (text.includes('Initialization Sequence Completed')) { connected = true; break; }
+    }
+
+    if (sqlTestState.aborted) {
+      sqlTestState.status = 'failed';
+      sqlTestState.error  = 'Test aborted';
+      return;
+    }
+    if (!connected) {
+      const buf = await container.logs({ stdout: true, stderr: true, tail: 40 }).catch(() => null) as unknown as Buffer | null;
+      if (buf) sqlTestLog(buf.toString('utf8'));
+      sqlTestState.status = 'failed';
+      sqlTestState.error  = 'VPN did not connect within 30s — see log for details';
+      return;
+    }
+    sqlTestLog('VPN connected (Initialization Sequence Completed).');
+
+    // The package install kicked off alongside the VPN handshake above —
+    // give it a little more room if it hasn't landed yet.
+    for (let i = 0; i < 20; i++) {
+      if (sqlTestState.aborted) break;
+      const check = await dockerExecRun(SQLT_CONTAINER, ['sh', '-c', 'which psql mysql tsql >/dev/null 2>&1 && echo ready']);
+      if (check.out.includes('ready')) break;
+      await new Promise(r => setTimeout(r, 1000));
+    }
+
+    if (sqlTestState.aborted) {
+      sqlTestState.status = 'failed';
+      sqlTestState.error  = 'Test aborted';
+      return;
+    }
+
+    const { engine, host, port, database, username, password, query } = params;
+    sqlTestState.status = 'connecting_db';
+    sqlTestLog(`Connecting to ${engine} at ${host}:${port}/${database}...`);
+
+    sqlTestState.status = 'running_query';
+    let result: { out: string; exitCode: number | null };
+    if (engine === 'postgres') {
+      result = await dockerExecRun(SQLT_CONTAINER,
+        ['psql', '-h', host, '-p', port, '-U', username, '-d', database, '-c', query],
+        { env: [`PGPASSWORD=${password}`] });
+    } else if (engine === 'mysql') {
+      result = await dockerExecRun(SQLT_CONTAINER,
+        ['mysql', '-h', host, '-P', port, '-u', username, '-D', database, '-e', query],
+        { env: [`MYSQL_PWD=${password}`] });
+    } else {
+      // freetds' tsql has no non-interactive "-c" flag — it reads statements
+      // from stdin terminated by a bare "go" line, same as isql/osql.
+      result = await dockerExecRun(SQLT_CONTAINER,
+        ['tsql', '-H', host, '-p', port, '-U', username, '-P', password, '-D', database],
+        { stdin: `${query}\ngo\nquit\n` });
+    }
+
+    sqlTestLog(result.out.trim() || '(no output)');
+
+    if (sqlTestState.aborted) {
+      sqlTestState.status = 'failed';
+      sqlTestState.error  = 'Test aborted';
+      return;
+    }
+
+    if (result.exitCode === 0) {
+      sqlTestState.status = 'success';
+      sqlTestLog('Query finished successfully.');
+    } else {
+      sqlTestState.status = 'failed';
+      sqlTestState.error  = `Query failed (exit code ${result.exitCode})`;
+    }
+  } catch (err: any) {
+    sqlTestState.status = 'failed';
+    sqlTestState.error  = err.message;
+    sqlTestLog(`Error: ${err.message}`);
+  } finally {
+    await cleanupSqlTestContainer();
+    sqlTestState.running = false;
+  }
+}
+
+// GET /api/admin/sql-test/vpn/config
+router.get('/sql-test/vpn/config', (_req, res) => {
+  res.json({ configured: fs.existsSync(SQLT_VPN_CONFIG) });
+});
+
+// POST /api/admin/sql-test/vpn/config — upload a dedicated .ovpn profile
+router.post('/sql-test/vpn/config', SQLT_VPN_UPLOAD.single('ovpn'), (req, res) => {
+  if (sqlTestState.running) return res.status(409).json({ error: 'A test is currently running' });
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+  if (!req.file.originalname.endsWith('.ovpn'))
+    return res.status(400).json({ error: 'File must be a .ovpn file' });
+
+  if (!fs.existsSync(SQLT_VPN_DIR)) fs.mkdirSync(SQLT_VPN_DIR, { recursive: true });
+  fs.writeFileSync(SQLT_VPN_CONFIG, req.file.buffer);
+  sqlTestState = { running: false, status: 'idle', log: '', aborted: false };
+  res.json({ message: 'VPN config uploaded' });
+});
+
+// DELETE /api/admin/sql-test/vpn/config
+router.delete('/sql-test/vpn/config', (_req, res) => {
+  if (sqlTestState.running) return res.status(409).json({ error: 'A test is currently running' });
+  if (fs.existsSync(SQLT_VPN_CONFIG)) fs.unlinkSync(SQLT_VPN_CONFIG);
+  sqlTestState = { running: false, status: 'idle', log: '', aborted: false };
+  res.json({ message: 'VPN config removed' });
+});
+
+// GET /api/admin/sql-test/status
+router.get('/sql-test/status', (_req, res) => res.json(sqlTestState));
+
+// POST /api/admin/sql-test/run
+router.post('/sql-test/run', (req, res) => {
+  if (sqlTestState.running) return res.status(409).json({ error: 'Test already running' });
+  if (!fs.existsSync(SQLT_VPN_CONFIG)) return res.status(400).json({ error: 'Upload a .ovpn config first' });
+
+  const { engine, host, port, database, username, password, query } = req.body || {};
+  if (!['postgres', 'mysql', 'mssql'].includes(engine))
+    return res.status(400).json({ error: 'Invalid engine' });
+  if (!host || !port || !database || !username || !query)
+    return res.status(400).json({ error: 'Host, port, database, username and query are required' });
+
+  res.json({ message: 'Test started' });
+  setImmediate(() => runSqlOverVpnTest({
+    engine, host, port: String(port), database, username,
+    password: password || '', query,
+  }));
+});
+
+// POST /api/admin/sql-test/stop
+router.post('/sql-test/stop', (_req, res) => {
+  sqlTestState.aborted = true;
+  res.json({ message: 'Stop requested' });
+});
+
+// POST /api/admin/sql-test/clean — force-remove a stuck test container
+router.post('/sql-test/clean', async (_req, res) => {
+  try {
+    await cleanupSqlTestContainer();
+    sqlTestState = { running: false, status: 'idle', log: '', aborted: false };
+    res.json({ message: 'Cleaned up' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

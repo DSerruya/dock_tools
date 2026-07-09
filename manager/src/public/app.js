@@ -87,7 +87,7 @@ function showTab(tab) {
   else if (tab === 'logs')  loadLogs();
   else if (tab === 'audit') loadAudit();
   else if (tab === 'admin') { loadUsers(); loadSystemVersion(); loadAddons(); loadResources(); ovLoad(); }
-  else if (tab === 'tests') { vtInit(); avpnInit(); }
+  else if (tab === 'tests') { vtInit(); avpnInit(); sqltInit(); }
 }
 
 /* ── Role helpers ──────────────────────────────────────────────────────────── */
@@ -2058,6 +2058,162 @@ async function avpnRefresh() {
   if (state.log) {
     document.getElementById('avpn-log-wrap').style.display = '';
     const log = document.getElementById('avpn-log');
+    log.textContent = state.log;
+    if (state.running) log.scrollTop = log.scrollHeight;
+  }
+}
+
+/* ── SQL over VPN test ───────────────────────────────────────────────────── */
+let sqltPollTimer = null;
+
+const SQLT_DEFAULT_PORT = { postgres: '5432', mysql: '3306', mssql: '1433' };
+
+function sqltEngineChanged() {
+  const engine   = document.getElementById('sqlt-engine').value;
+  const portInput = document.getElementById('sqlt-port');
+  // Only auto-fill the port if it still matches one of the known defaults —
+  // don't clobber a value the admin typed in themselves.
+  if (Object.values(SQLT_DEFAULT_PORT).includes(portInput.value)) {
+    portInput.value = SQLT_DEFAULT_PORT[engine];
+  }
+}
+
+async function sqltInit() {
+  await sqltLoadConfigStatus();
+  const state = await api('GET', '/api/admin/sql-test/status').catch(() => null);
+  if (state && state.running) sqltStartPolling();
+  else sqltRefresh();
+}
+
+async function sqltLoadConfigStatus() {
+  try {
+    const { configured } = await api('GET', '/api/admin/sql-test/vpn/config');
+    document.getElementById('sqlt-file-status').textContent = configured ? '.ovpn configured' : 'No .ovpn file uploaded';
+    document.getElementById('sqlt-remove-btn').style.display = configured ? '' : 'none';
+  } catch (e) { console.warn('sqltLoadConfigStatus:', e.message); }
+}
+
+function sqltFileSelected() {
+  const input = document.getElementById('sqlt-file-input');
+  const file  = input.files[0];
+  if (!file) return;
+  if (!file.name.endsWith('.ovpn')) {
+    toast('Only .ovpn files are accepted', 'error');
+    input.value = '';
+    return;
+  }
+  const fd = new FormData();
+  fd.append('ovpn', file);
+  fetch('/api/admin/sql-test/vpn/config', { method: 'POST', body: fd })
+    .then(r => r.json().then(data => ({ ok: r.ok, data })))
+    .then(({ ok, data }) => {
+      if (!ok) throw new Error(data.error || 'Upload failed');
+      toast('.ovpn uploaded', 'success');
+      sqltLoadConfigStatus();
+    })
+    .catch(e => toast('Upload failed: ' + e.message, 'error'));
+  input.value = '';
+}
+
+async function sqltRemoveConfig() {
+  if (!confirm('Remove the uploaded OpenVPN config?')) return;
+  try {
+    await api('DELETE', '/api/admin/sql-test/vpn/config');
+    toast('.ovpn removed', 'info');
+    sqltLoadConfigStatus();
+    document.getElementById('sqlt-result').innerHTML = '';
+  } catch (e) { toast('Failed: ' + e.message, 'error'); }
+}
+
+async function sqltRun() {
+  const engine   = document.getElementById('sqlt-engine').value;
+  const host     = document.getElementById('sqlt-host').value.trim();
+  const port     = document.getElementById('sqlt-port').value.trim();
+  const database = document.getElementById('sqlt-database').value.trim();
+  const username = document.getElementById('sqlt-username').value.trim();
+  const password = document.getElementById('sqlt-password').value;
+  const query    = document.getElementById('sqlt-query').value.trim();
+
+  if (!host || !port || !database || !username || !query) {
+    toast('Host, port, database, username and query are required', 'error');
+    return;
+  }
+
+  try {
+    await api('POST', '/api/admin/sql-test/run', { engine, host, port, database, username, password, query });
+    document.getElementById('sqlt-result').innerHTML = '';
+    sqltStartPolling();
+  } catch (e) { toast('Failed: ' + e.message, 'error'); }
+}
+
+async function sqltStop() {
+  await api('POST', '/api/admin/sql-test/stop').catch(() => {});
+  toast('Stop requested', 'info');
+}
+
+async function sqltClean() {
+  if (!confirm('Remove the SQL test container?')) return;
+  try {
+    const r = await api('POST', '/api/admin/sql-test/clean');
+    toast(r.message, 'success');
+    sqltRefresh();
+  } catch (e) { toast('Failed: ' + e.message, 'error'); }
+}
+
+function sqltStartPolling() {
+  if (sqltPollTimer) clearInterval(sqltPollTimer);
+  sqltPollTimer = setInterval(sqltRefresh, 1500);
+  sqltRefresh();
+}
+function sqltStopPolling() {
+  if (sqltPollTimer) { clearInterval(sqltPollTimer); sqltPollTimer = null; }
+}
+
+function sqltToggleLog() {
+  const box    = document.getElementById('sqlt-log');
+  const toggle = document.getElementById('sqlt-log-toggle');
+  const shown  = box.style.display !== 'none';
+  box.style.display  = shown ? 'none' : '';
+  toggle.textContent = shown ? '▾ show' : '▴ hide';
+  if (!shown) box.scrollTop = box.scrollHeight;
+}
+
+const SQLT_STATUS = {
+  idle:            { label: '— Idle',                 color: 'var(--muted)' },
+  pulling_image:   { label: '⬇ Pulling image',        color: 'var(--accent)' },
+  starting:        { label: '⟳ Starting',             color: 'var(--accent)' },
+  connecting_vpn:  { label: '⟳ Connecting VPN…',       color: 'var(--accent)' },
+  connecting_db:   { label: '⟳ Connecting to DB…',     color: 'var(--accent)' },
+  running_query:   { label: '⟳ Running query…',        color: 'var(--accent)' },
+  success:         { label: '✓ Success',               color: 'var(--green)' },
+  failed:          { label: '✗ Failed',                color: '#ef4444' },
+};
+
+async function sqltRefresh() {
+  const state = await api('GET', '/api/admin/sql-test/status').catch(() => null);
+  if (!state) return;
+
+  document.getElementById('sqlt-run-btn').disabled       = state.running;
+  document.getElementById('sqlt-stop-btn').style.display = state.running ? '' : 'none';
+  if (!state.running) sqltStopPolling();
+
+  const s = SQLT_STATUS[state.status] || { label: state.status, color: 'var(--muted)' };
+  const badge = document.getElementById('sqlt-status-badge');
+  badge.textContent = s.label;
+  badge.style.color = s.color;
+
+  const resultEl = document.getElementById('sqlt-result');
+  if (state.status === 'success') {
+    resultEl.innerHTML = '<span style="color:var(--green)">✓ Query ran successfully — see the log below for output.</span>';
+  } else if (state.status === 'failed' && state.error) {
+    resultEl.innerHTML = `<span style="color:#ef4444">✗ ${escHtml(state.error)}</span>`;
+  } else {
+    resultEl.innerHTML = '';
+  }
+
+  if (state.log) {
+    document.getElementById('sqlt-log-wrap').style.display = '';
+    const log = document.getElementById('sqlt-log');
     log.textContent = state.log;
     if (state.running) log.scrollTop = log.scrollHeight;
   }
