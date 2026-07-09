@@ -1589,14 +1589,17 @@ async function runSqlOverVpnTest(params: {
         // written first. The query is still fed via stdin (batch terminated
         // by a bare "go" line) with every value passed through env vars
         // quoted as "$VAR" — never string-concatenated — so nothing here
-        // can be reinterpreted as shell syntax.
+        // can be reinterpreted as shell syntax. -v (verbose) is required to
+        // get any detail beyond a bare "dbsqlok() failed" on error — FreeTDS
+        // docs: without it, DB-Library diagnostic detail is suppressed and
+        // only surfaces on stderr with -v.
         const bsqldbScript = `cat >> /etc/freetds.conf <<CONF
 [sqltarget]
     host = $SQLT_HOST
     port = $SQLT_PORT
     tds version = auto
 CONF
-printf "%s\\ngo\\n" "$SQLT_Q" | bsqldb -S sqltarget -D "$SQLT_DB" -U "$SQLT_USER" -P "$SQLT_PASS" -t "$SQLT_SEP"`;
+printf "%s\\ngo\\n" "$SQLT_Q" | bsqldb -S sqltarget -D "$SQLT_DB" -U "$SQLT_USER" -P "$SQLT_PASS" -t "$SQLT_SEP" -v`;
         result = await dockerExecRun(SQLT_CONTAINER, ['sh', '-c', bsqldbScript],
           { env: [
             `SQLT_Q=${query}`, `SQLT_HOST=${host}`, `SQLT_PORT=${port}`,
