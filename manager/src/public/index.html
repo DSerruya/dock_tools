@@ -412,6 +412,7 @@
     <button class="tab-btn"        onclick="showTab('logs')">📋 Logs</button>
     <button class="tab-btn"        onclick="showTab('audit')">🕵 Changes</button>
     <button class="tab-btn" id="tab-admin-btn" style="display:none" onclick="showTab('admin')">🔐 Admin</button>
+    <button class="tab-btn" id="tab-tests-btn" style="display:none" onclick="showTab('tests')">🧪 System Tests</button>
   </div>
   <div class="header-actions">
     <button class="howto-btn" id="theme-toggle-btn" onclick="toggleTheme()" title="Toggle light/dark mode">☀</button>
@@ -434,20 +435,6 @@
 
   <!-- ── Admin tab ── -->
   <div id="tab-admin" class="tab-panel">
-
-    <!-- Heartbeat test script card -->
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:16px">
-      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
-        <div>
-          <div style="font-size:14px;font-weight:600;margin-bottom:4px">💎 Heartbeat Test Script</div>
-          <div style="font-size:12px;color:var(--muted);line-height:1.6">
-            Public Ruby script that validates git clone, container execution, and live log streaming.<br>
-            Repo: <code style="font-size:11px;color:var(--accent)">github.com/DSerruya/dock_tools_test</code>
-          </div>
-        </div>
-        <button class="btn btn-primary btn-sm" onclick="openHeartbeatModal()">+ Add to Scripts</button>
-      </div>
-    </div>
 
     <!-- System / version card -->
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:24px">
@@ -551,6 +538,55 @@
       </div>
     </div>
 
+    <div class="table-toolbar">
+      <div>
+        <h2 style="font-size:16px;font-weight:600">User Management</h2>
+        <p style="font-size:12px;color:var(--muted);margin-top:4px">Create users and assign roles. Roles control what each user can see and do.</p>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost" onclick="exportScripts()" title="Download all script configurations as JSON">⬇ Export Configs</button>
+        <button class="btn btn-ghost" onclick="openImportModal()" title="Import scripts from a JSON export file">⬆ Import Configs</button>
+        <button class="btn btn-primary" onclick="openAddUserModal()">+ Add User</button>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px">
+      <div class="role-card">
+        <span class="role-badge role-admin" style="font-size:13px;padding:4px 12px">Admin</span>
+        <p>Full access — manages users, scripts, logs, and config changes.</p>
+      </div>
+      <div class="role-card">
+        <span class="role-badge role-agent" style="font-size:13px;padding:4px 12px">Agent</span>
+        <p>Can create, start, stop, restart and run scripts. Can view logs and changes. Cannot manage users.</p>
+      </div>
+      <div class="role-card">
+        <span class="role-badge role-viewer" style="font-size:13px;padding:4px 12px">Viewer</span>
+        <p>Read-only access to scripts, logs, and config changes. No execution or user management.</p>
+      </div>
+    </div>
+
+    <div id="users-container">
+      <div class="empty-state"><div class="icon"><span class="spinner"></span></div><h2>Loading...</h2></div>
+    </div>
+  </div>
+
+  <!-- ── System Tests tab ── -->
+  <div id="tab-tests" class="tab-panel">
+
+    <!-- Heartbeat test script card -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:24px">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+        <div>
+          <div style="font-size:14px;font-weight:600;margin-bottom:4px">💎 Heartbeat Test Script</div>
+          <div style="font-size:12px;color:var(--muted);line-height:1.6">
+            Public Ruby script that validates git clone, container execution, and live log streaming.<br>
+            Repo: <code style="font-size:11px;color:var(--accent)">github.com/DSerruya/dock_tools_test</code>
+          </div>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="openHeartbeatModal()">+ Add to Scripts</button>
+      </div>
+    </div>
+
     <!-- Ollama Version Tester card -->
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:24px">
       <div style="font-size:14px;font-weight:600;margin-bottom:4px">🔬 Ollama Version Tester</div>
@@ -610,37 +646,6 @@
                     background:#0a0c12;border:1px solid var(--border);border-radius:6px;
                     padding:10px;max-height:260px;overflow-y:auto;color:#a3e635;white-space:pre-wrap;word-break:break-all"></div>
       </div>
-    </div>
-
-    <div class="table-toolbar">
-      <div>
-        <h2 style="font-size:16px;font-weight:600">User Management</h2>
-        <p style="font-size:12px;color:var(--muted);margin-top:4px">Create users and assign roles. Roles control what each user can see and do.</p>
-      </div>
-      <div style="display:flex;gap:8px">
-        <button class="btn btn-ghost" onclick="exportScripts()" title="Download all script configurations as JSON">⬇ Export Configs</button>
-        <button class="btn btn-ghost" onclick="openImportModal()" title="Import scripts from a JSON export file">⬆ Import Configs</button>
-        <button class="btn btn-primary" onclick="openAddUserModal()">+ Add User</button>
-      </div>
-    </div>
-
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px">
-      <div class="role-card">
-        <span class="role-badge role-admin" style="font-size:13px;padding:4px 12px">Admin</span>
-        <p>Full access — manages users, scripts, logs, and config changes.</p>
-      </div>
-      <div class="role-card">
-        <span class="role-badge role-agent" style="font-size:13px;padding:4px 12px">Agent</span>
-        <p>Can create, start, stop, restart and run scripts. Can view logs and changes. Cannot manage users.</p>
-      </div>
-      <div class="role-card">
-        <span class="role-badge role-viewer" style="font-size:13px;padding:4px 12px">Viewer</span>
-        <p>Read-only access to scripts, logs, and config changes. No execution or user management.</p>
-      </div>
-    </div>
-
-    <div id="users-container">
-      <div class="empty-state"><div class="icon"><span class="spinner"></span></div><h2>Loading...</h2></div>
     </div>
   </div>
 

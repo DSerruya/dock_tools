@@ -70,7 +70,7 @@ async function api(method, path, body) {
 }
 
 /* ── Tab switching ──────────────────────────────────────────────────────── */
-const TAB_INDEX = { scripts: 0, logs: 1, audit: 2, admin: 3 };
+const TAB_INDEX = { scripts: 0, logs: 1, audit: 2, admin: 3, tests: 4 };
 
 function showTab(tab) {
   currentTab = tab;
@@ -86,7 +86,8 @@ function showTab(tab) {
   if (tab === 'scripts')    loadScripts();
   else if (tab === 'logs')  loadLogs();
   else if (tab === 'audit') loadAudit();
-  else if (tab === 'admin') { loadUsers(); loadSystemVersion(); loadAddons(); loadResources(); vtInit(); ovLoad(); avpnInit(); }
+  else if (tab === 'admin') { loadUsers(); loadSystemVersion(); loadAddons(); loadResources(); ovLoad(); }
+  else if (tab === 'tests') { vtInit(); avpnInit(); }
 }
 
 /* ── Role helpers ──────────────────────────────────────────────────────────── */
@@ -97,8 +98,9 @@ function canDelete() { return currentUser.role === 'admin'; }
 async function loadCurrentUser() {
   try {
     currentUser = await api('GET', '/api/me');
-    // Show admin tab only for admins
+    // Show admin tab and system tests tab only for admins
     document.getElementById('tab-admin-btn').style.display = isAdmin() ? '' : 'none';
+    document.getElementById('tab-tests-btn').style.display = isAdmin() ? '' : 'none';
     // Show user pill
     const badge = document.getElementById('user-badge');
     badge.textContent = `${currentUser.username} · ${currentUser.role}`;
