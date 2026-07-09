@@ -1382,6 +1382,26 @@ function parseFreetdsTable(text: string, sep: string): { columns: string[]; rows
   return columns.length > 0 ? { columns, rows } : null;
 }
 
+// FreeTDS's own wire-level protocol trace (set via the TDSDUMP env var) —
+// pulled in specifically for mssql, where "dbsqlok() failed" with no
+// message (even under bsqldb -v) means the failure is below what the CLI
+// itself reports, e.g. a TLS/encryption negotiation mismatch or a
+// truncated/corrupted response. Head+tail only, since a full session trace
+// can be large and the interesting parts are the initial negotiation and
+// wherever it broke at the end.
+async function readTdsDumpExcerpt(): Promise<string | null> {
+  const sizeRes = await dockerExecRun(SQLT_CONTAINER, ['sh', '-c', 'wc -c < /tmp/tdsdump.log 2>/dev/null || echo 0']);
+  const size = parseInt(sizeRes.out.trim(), 10) || 0;
+  if (size === 0) return null;
+  if (size <= 11000) {
+    const r = await dockerExecRun(SQLT_CONTAINER, ['cat', '/tmp/tdsdump.log']);
+    return r.out;
+  }
+  const head = await dockerExecRun(SQLT_CONTAINER, ['sh', '-c', 'head -c 3000 /tmp/tdsdump.log']);
+  const tail = await dockerExecRun(SQLT_CONTAINER, ['sh', '-c', 'tail -c 8000 /tmp/tdsdump.log']);
+  return `${head.out}\n... (truncated — ${size} bytes total, showing start + end) ...\n${tail.out}`;
+}
+
 function buildResultTable(engine: SqlEngine, out: string): SqlResultTable | null {
   const parsed = engine === 'postgres' ? parseCsvTable(out)
     : engine === 'mysql' ? parseTsvTable(out)
@@ -1599,12 +1619,13 @@ async function runSqlOverVpnTest(params: {
     port = $SQLT_PORT
     tds version = auto
 CONF
+rm -f /tmp/tdsdump.log
 printf "%s\\ngo\\n" "$SQLT_Q" | bsqldb -S sqltarget -D "$SQLT_DB" -U "$SQLT_USER" -P "$SQLT_PASS" -t "$SQLT_SEP" -v`;
         result = await dockerExecRun(SQLT_CONTAINER, ['sh', '-c', bsqldbScript],
           { env: [
             `SQLT_Q=${query}`, `SQLT_HOST=${host}`, `SQLT_PORT=${port}`,
             `SQLT_USER=${username}`, `SQLT_PASS=${password}`, `SQLT_DB=${database}`,
-            `SQLT_SEP=${SQLT_MSSQL_SEP}`,
+            `SQLT_SEP=${SQLT_MSSQL_SEP}`, `TDSDUMP=/tmp/tdsdump.log`,
           ] });
       }
     } catch (err: any) {
@@ -1616,6 +1637,16 @@ printf "%s\\ngo\\n" "$SQLT_Q" | bsqldb -S sqltarget -D "$SQLT_DB" -U "$SQLT_USER
     sqlTestLog(result.out.trim() || '(client produced no output)');
     sqlTestLog('--- end output ---');
     sqlTestLog(`Exit code: ${result.exitCode === null ? 'unknown' : result.exitCode}`);
+
+    if (engine === 'mssql') {
+      const dump = await readTdsDumpExcerpt().catch(() => null);
+      if (dump && dump.trim()) {
+        const redacted = password ? dump.split(password).join('[redacted]') : dump;
+        sqlTestLog('--- FreeTDS protocol trace (diagnoses failures below what -v reports, e.g. TLS/negotiation) ---');
+        sqlTestLog(redacted.trim());
+        sqlTestLog('--- end protocol trace ---');
+      }
+    }
 
     if (sqlTestState.aborted) {
       sqlTestState.status = 'failed';
