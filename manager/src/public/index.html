@@ -504,40 +504,6 @@
       <div id="ov-msg" style="margin-top:8px;font-size:12px;min-height:16px"></div>
     </div>
 
-    <!-- Ollama CPU Troubleshooting card -->
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:24px">
-      <div style="font-size:14px;font-weight:600;margin-bottom:4px">🧠 Ollama CPU Compatibility</div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5">
-        If Ollama models (llama3, gemma3) are segfaulting due to AMX instruction issues, use the tools below to diagnose and fix.
-      </div>
-      <div id="ollama-cpu-result" style="margin-bottom:12px"></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-        <button class="btn btn-ghost btn-sm" onclick="ollamaCpuCheck()" id="ollama-cpu-btn">🔍 Check CPU Flags</button>
-        <button class="btn btn-ghost btn-sm" id="ollama-update-btn" style="display:none" onclick="ollamaUpdate()" title="Pull ollama/ollama:latest and recreate the container">⬆ Update Ollama</button>
-        <button class="btn btn-primary btn-sm" id="ollama-fix-btn" style="display:none" onclick="ollamaApplyAmxFix()" title="Crash on Ollama startup — CPU doesn't fully support AMX">⚡ Fix: OLLAMA_NO_AMX=1</button>
-        <button class="btn btn-primary btn-sm" id="ollama-ggml-fix-btn" style="display:none" onclick="ollamaApplyGgmlAmxFix()" title="Crash when querying a model — CPU supports AMX but hits GGML init bug">⚡ Fix: GGML_NO_AMX=1</button>
-        <button class="btn btn-primary btn-sm" id="ollama-both-fix-btn" style="display:none" onclick="ollamaApplyBothAmxFix()" title="Not sure when it crashes — apply both fixes at once">⚡ Fix: Both AMX flags</button>
-        <button class="btn btn-primary btn-sm" id="ollama-avx2-fix-btn" style="display:none" onclick="ollamaApplyAvx2Fix()" title="Cap CPU instruction set to AVX2 only, skipping AMX and AVX-512">⚡ Fix: AVX2 only</button>
-        <button class="btn btn-primary btn-sm" id="ollama-avx2-runner-btn" style="display:none" onclick="ollamaApplyAvx2Runner()" title="Force the AVX2 CPU runner instead of auto-detecting AMX">⚡ Fix: AVX2 runner</button>
-        <button class="btn btn-ghost btn-sm" id="ollama-reset-btn" style="display:none" onclick="ollamaResetFlags()" title="Remove all CPU env var overrides and restart Ollama with defaults">↺ Reset All Flags</button>
-      </div>
-      <div id="ollama-mem-row" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);display:none;align-items:center;gap:8px;flex-wrap:wrap">
-        <span style="font-size:12px;color:var(--muted)">Memory limit:</span>
-        <span id="ollama-mem-current" style="font-size:12px;color:var(--accent)"></span>
-        <select id="ollama-mem-select" class="input" style="width:auto;padding:4px 8px;font-size:12px" onchange="ollamaMemSelectChanged()">
-          <option value="0">Unlimited</option>
-          <option value="8g">8 GB</option>
-          <option value="12g">12 GB</option>
-          <option value="16g">16 GB</option>
-          <option value="24g">24 GB</option>
-          <option value="32g">32 GB</option>
-          <option value="custom">Custom…</option>
-        </select>
-        <input id="ollama-mem-custom" type="text" class="input" placeholder="e.g. 20g" style="display:none;width:90px;padding:4px 8px;font-size:12px" />
-        <button class="btn btn-ghost btn-sm" onclick="ollamaSetMemory()">Apply</button>
-      </div>
-    </div>
-
     <div class="table-toolbar">
       <div>
         <h2 style="font-size:16px;font-weight:600">User Management</h2>
@@ -645,6 +611,40 @@
              style="display:none;font-family:'Courier New',monospace;font-size:11px;
                     background:#0a0c12;border:1px solid var(--border);border-radius:6px;
                     padding:10px;max-height:260px;overflow-y:auto;color:#a3e635;white-space:pre-wrap;word-break:break-all"></div>
+      </div>
+    </div>
+
+    <!-- Ollama CPU Troubleshooting card -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:24px">
+      <div style="font-size:14px;font-weight:600;margin-bottom:4px">🧠 Ollama CPU Compatibility</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5">
+        If Ollama models (llama3, gemma3) are segfaulting due to AMX instruction issues, use the tools below to diagnose and fix.
+      </div>
+      <div id="ollama-cpu-result" style="margin-bottom:12px"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button class="btn btn-ghost btn-sm" onclick="ollamaCpuCheck()" id="ollama-cpu-btn">🔍 Check CPU Flags</button>
+        <button class="btn btn-ghost btn-sm" id="ollama-update-btn" style="display:none" onclick="ollamaUpdate()" title="Pull ollama/ollama:latest and recreate the container">⬆ Update Ollama</button>
+        <button class="btn btn-primary btn-sm" id="ollama-fix-btn" style="display:none" onclick="ollamaApplyAmxFix()" title="Crash on Ollama startup — CPU doesn't fully support AMX">⚡ Fix: OLLAMA_NO_AMX=1</button>
+        <button class="btn btn-primary btn-sm" id="ollama-ggml-fix-btn" style="display:none" onclick="ollamaApplyGgmlAmxFix()" title="Crash when querying a model — CPU supports AMX but hits GGML init bug">⚡ Fix: GGML_NO_AMX=1</button>
+        <button class="btn btn-primary btn-sm" id="ollama-both-fix-btn" style="display:none" onclick="ollamaApplyBothAmxFix()" title="Not sure when it crashes — apply both fixes at once">⚡ Fix: Both AMX flags</button>
+        <button class="btn btn-primary btn-sm" id="ollama-avx2-fix-btn" style="display:none" onclick="ollamaApplyAvx2Fix()" title="Cap CPU instruction set to AVX2 only, skipping AMX and AVX-512">⚡ Fix: AVX2 only</button>
+        <button class="btn btn-primary btn-sm" id="ollama-avx2-runner-btn" style="display:none" onclick="ollamaApplyAvx2Runner()" title="Force the AVX2 CPU runner instead of auto-detecting AMX">⚡ Fix: AVX2 runner</button>
+        <button class="btn btn-ghost btn-sm" id="ollama-reset-btn" style="display:none" onclick="ollamaResetFlags()" title="Remove all CPU env var overrides and restart Ollama with defaults">↺ Reset All Flags</button>
+      </div>
+      <div id="ollama-mem-row" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);display:none;align-items:center;gap:8px;flex-wrap:wrap">
+        <span style="font-size:12px;color:var(--muted)">Memory limit:</span>
+        <span id="ollama-mem-current" style="font-size:12px;color:var(--accent)"></span>
+        <select id="ollama-mem-select" class="input" style="width:auto;padding:4px 8px;font-size:12px" onchange="ollamaMemSelectChanged()">
+          <option value="0">Unlimited</option>
+          <option value="8g">8 GB</option>
+          <option value="12g">12 GB</option>
+          <option value="16g">16 GB</option>
+          <option value="24g">24 GB</option>
+          <option value="32g">32 GB</option>
+          <option value="custom">Custom…</option>
+        </select>
+        <input id="ollama-mem-custom" type="text" class="input" placeholder="e.g. 20g" style="display:none;width:90px;padding:4px 8px;font-size:12px" />
+        <button class="btn btn-ghost btn-sm" onclick="ollamaSetMemory()">Apply</button>
       </div>
     </div>
   </div>
