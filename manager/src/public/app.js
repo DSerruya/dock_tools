@@ -2179,14 +2179,15 @@ function sqltToggleLog() {
 }
 
 const SQLT_STATUS = {
-  idle:            { label: '— Idle',                 color: 'var(--muted)' },
-  pulling_image:   { label: '⬇ Pulling image',        color: 'var(--accent)' },
-  starting:        { label: '⟳ Starting',             color: 'var(--accent)' },
-  connecting_vpn:  { label: '⟳ Connecting VPN…',       color: 'var(--accent)' },
-  connecting_db:   { label: '⟳ Connecting to DB…',     color: 'var(--accent)' },
-  running_query:   { label: '⟳ Running query…',        color: 'var(--accent)' },
-  success:         { label: '✓ Success',               color: 'var(--green)' },
-  failed:          { label: '✗ Failed',                color: '#ef4444' },
+  idle:                  { label: '— Idle',                  color: 'var(--muted)' },
+  pulling_image:         { label: '⬇ Pulling image',         color: 'var(--accent)' },
+  starting:              { label: '⟳ Starting',              color: 'var(--accent)' },
+  connecting_vpn:        { label: '⟳ Connecting VPN…',        color: 'var(--accent)' },
+  checking_reachability: { label: '⟳ Checking reachability…', color: 'var(--accent)' },
+  connecting_db:         { label: '⟳ Connecting to DB…',      color: 'var(--accent)' },
+  running_query:         { label: '⟳ Running query…',         color: 'var(--accent)' },
+  success:               { label: '✓ Success',                color: 'var(--green)' },
+  failed:                { label: '✗ Failed',                 color: '#ef4444' },
 };
 
 async function sqltRefresh() {

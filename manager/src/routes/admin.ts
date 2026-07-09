@@ -1302,8 +1302,8 @@ const SQLT_PACKAGES  = 'openvpn postgresql-client mariadb-client freetds';
 type SqlEngine = 'postgres' | 'mysql' | 'mssql';
 
 type SqlTestStatus =
-  | 'idle' | 'pulling_image' | 'starting' | 'connecting_vpn' | 'connecting_db'
-  | 'running_query' | 'success' | 'failed';
+  | 'idle' | 'pulling_image' | 'starting' | 'connecting_vpn' | 'checking_reachability'
+  | 'connecting_db' | 'running_query' | 'success' | 'failed';
 
 interface SqlTestState {
   running: boolean;
@@ -1333,28 +1333,38 @@ async function cleanupSqlTestContainer(): Promise<void> {
 // Cmd is always passed straight to execve — never through `sh -c` — so
 // connection fields and the query itself can't be reinterpreted as shell
 // syntax. Secrets go through Env, not argv, to keep them out of `docker top`.
+// Exit code can lag a moment behind the output stream closing, so poll
+// briefly instead of trusting a single inspect() right after 'end'.
 async function dockerExecRun(
   containerName: string,
   cmd: string[],
-  opts: { env?: string[]; stdin?: string } = {},
+  opts: { env?: string[] } = {},
 ): Promise<{ out: string; exitCode: number | null }> {
   const exec = await docker.getContainer(containerName).exec({
-    Cmd: cmd, Env: opts.env, Tty: true,
-    AttachStdin: !!opts.stdin, AttachStdout: true, AttachStderr: true,
+    Cmd: cmd, Env: opts.env, Tty: true, AttachStdout: true, AttachStderr: true,
   });
-  const stream = await exec.start({ hijack: true, stdin: !!opts.stdin });
-  if (opts.stdin) {
-    stream.write(opts.stdin);
-    stream.end();
-  }
+  const stream = await exec.start({ hijack: true, stdin: false });
   const out = await new Promise<string>((resolve, reject) => {
     let buf = '';
     stream.on('data',  (d: Buffer) => { buf += d.toString(); });
     stream.on('end',   () => resolve(buf));
     stream.on('error', reject);
   });
-  const info = await exec.inspect().catch(() => null);
-  return { out, exitCode: info ? info.ExitCode : null };
+  let exitCode: number | null = null;
+  for (let i = 0; i < 10; i++) {
+    const info = await exec.inspect().catch(() => null);
+    if (info && !info.Running) { exitCode = info.ExitCode; break; }
+    await new Promise(r => setTimeout(r, 200));
+  }
+  return { out, exitCode };
+}
+
+// Zero-I/O TCP connect scan — purely diagnostic, doesn't affect the actual
+// DB connection attempt below. Lets an admin tell "VPN up, port unreachable"
+// apart from "port reachable, DB/auth/query itself failed".
+async function checkTcpReachable(host: string, port: string): Promise<boolean> {
+  const { exitCode } = await dockerExecRun(SQLT_CONTAINER, ['nc', '-z', '-w', '5', host, port]);
+  return exitCode === 0;
 }
 
 async function runSqlOverVpnTest(params: {
@@ -1403,19 +1413,28 @@ async function runSqlOverVpnTest(params: {
     }
     if (!connected) {
       const buf = await container.logs({ stdout: true, stderr: true, tail: 40 }).catch(() => null) as unknown as Buffer | null;
-      if (buf) sqlTestLog(buf.toString('utf8'));
+      sqlTestLog('--- container log (VPN never signaled a completed handshake) ---');
+      sqlTestLog(buf ? buf.toString('utf8').trim() : '(no container output captured)');
       sqlTestState.status = 'failed';
       sqlTestState.error  = 'VPN did not connect within 30s — see log for details';
       return;
     }
-    sqlTestLog('VPN connected (Initialization Sequence Completed).');
+    sqlTestLog('✓ VPN connected (Initialization Sequence Completed).');
+
+    const routes = await dockerExecRun(SQLT_CONTAINER, ['sh', '-c', 'ip route 2>&1']).catch(() => null);
+    if (routes && routes.out.trim()) {
+      sqlTestLog('--- routing table after VPN connect ---');
+      sqlTestLog(routes.out.trim());
+    }
 
     // The package install kicked off alongside the VPN handshake above —
     // give it a little more room if it hasn't landed yet.
+    sqlTestLog('Waiting for SQL client tools to finish installing (psql, mysql, tsql, nc)...');
+    let toolsReady = false;
     for (let i = 0; i < 20; i++) {
       if (sqlTestState.aborted) break;
-      const check = await dockerExecRun(SQLT_CONTAINER, ['sh', '-c', 'which psql mysql tsql >/dev/null 2>&1 && echo ready']);
-      if (check.out.includes('ready')) break;
+      const check = await dockerExecRun(SQLT_CONTAINER, ['sh', '-c', 'which psql mysql tsql nc >/dev/null 2>&1 && echo ready']);
+      if (check.out.includes('ready')) { toolsReady = true; break; }
       await new Promise(r => setTimeout(r, 1000));
     }
 
@@ -1425,29 +1444,66 @@ async function runSqlOverVpnTest(params: {
       return;
     }
 
+    sqlTestLog(toolsReady
+      ? '✓ SQL client tools ready.'
+      : '⚠ SQL client tools not confirmed ready after 20s — continuing anyway, the run below may fail if a binary is missing.');
+
     const { engine, host, port, database, username, password, query } = params;
+
+    sqlTestState.status = 'checking_reachability';
+    sqlTestLog(`Testing TCP reachability to ${host}:${port} over the tunnel (5s timeout, diagnostic only)...`);
+    const reachable = await checkTcpReachable(host, port).catch(() => false);
+    sqlTestLog(reachable
+      ? `✓ ${host}:${port} is reachable through the tunnel.`
+      : `✗ Could not reach ${host}:${port} within 5s — likely a VPN route or firewall issue for this host/port. Continuing to attempt the DB connection anyway.`);
+
+    if (sqlTestState.aborted) {
+      sqlTestState.status = 'failed';
+      sqlTestState.error  = 'Test aborted';
+      return;
+    }
+
     sqlTestState.status = 'connecting_db';
-    sqlTestLog(`Connecting to ${engine} at ${host}:${port}/${database}...`);
+    sqlTestLog(`Connecting to ${engine} at ${host}:${port}/${database} as '${username}'...`);
 
     sqlTestState.status = 'running_query';
     let result: { out: string; exitCode: number | null };
-    if (engine === 'postgres') {
-      result = await dockerExecRun(SQLT_CONTAINER,
-        ['psql', '-h', host, '-p', port, '-U', username, '-d', database, '-c', query],
-        { env: [`PGPASSWORD=${password}`] });
-    } else if (engine === 'mysql') {
-      result = await dockerExecRun(SQLT_CONTAINER,
-        ['mysql', '-h', host, '-P', port, '-u', username, '-D', database, '-e', query],
-        { env: [`MYSQL_PWD=${password}`] });
-    } else {
-      // freetds' tsql has no non-interactive "-c" flag — it reads statements
-      // from stdin terminated by a bare "go" line, same as isql/osql.
-      result = await dockerExecRun(SQLT_CONTAINER,
-        ['tsql', '-H', host, '-p', port, '-U', username, '-P', password, '-D', database],
-        { stdin: `${query}\ngo\nquit\n` });
+    try {
+      if (engine === 'postgres') {
+        sqlTestLog('Running psql...');
+        result = await dockerExecRun(SQLT_CONTAINER,
+          ['psql', '-h', host, '-p', port, '-U', username, '-d', database, '-c', query],
+          { env: [`PGPASSWORD=${password}`] });
+      } else if (engine === 'mysql') {
+        sqlTestLog('Running mysql client...');
+        result = await dockerExecRun(SQLT_CONTAINER,
+          ['mysql', '-h', host, '-P', port, '-u', username, '-D', database, '-e', query],
+          { env: [`MYSQL_PWD=${password}`] });
+      } else {
+        sqlTestLog('Running tsql...');
+        // freetds' tsql has no "-c" flag for a single query — it's fed as a
+        // batch terminated by a bare "go" line, same convention as isql/osql.
+        // That's piped inside the container's own shell (via env-var-quoted
+        // values, never string-concatenated) so we don't need to attach
+        // stdin over the exec's hijacked stream, which is flaky combined
+        // with Tty and was the likely cause of runs silently returning no
+        // output and no exit code.
+        result = await dockerExecRun(SQLT_CONTAINER,
+          ['sh', '-c', 'printf "%s\\ngo\\nquit\\n" "$SQLT_Q" | tsql -H "$SQLT_HOST" -p "$SQLT_PORT" -U "$SQLT_USER" -P "$SQLT_PASS" -D "$SQLT_DB"'],
+          { env: [
+            `SQLT_Q=${query}`, `SQLT_HOST=${host}`, `SQLT_PORT=${port}`,
+            `SQLT_USER=${username}`, `SQLT_PASS=${password}`, `SQLT_DB=${database}`,
+          ] });
+      }
+    } catch (err: any) {
+      sqlTestLog(`Error launching the ${engine} client: ${err.message}`);
+      result = { out: '', exitCode: null };
     }
 
-    sqlTestLog(result.out.trim() || '(no output)');
+    sqlTestLog('--- client output ---');
+    sqlTestLog(result.out.trim() || '(client produced no output)');
+    sqlTestLog('--- end output ---');
+    sqlTestLog(`Exit code: ${result.exitCode === null ? 'unknown' : result.exitCode}`);
 
     if (sqlTestState.aborted) {
       sqlTestState.status = 'failed';
@@ -1458,9 +1514,12 @@ async function runSqlOverVpnTest(params: {
     if (result.exitCode === 0) {
       sqlTestState.status = 'success';
       sqlTestLog('Query finished successfully.');
+    } else if (result.exitCode === null) {
+      sqlTestState.status = 'failed';
+      sqlTestState.error  = 'The client process never reported an exit code — see the log above for whether the client tools were ready and whether the port was reachable.';
     } else {
       sqlTestState.status = 'failed';
-      sqlTestState.error  = `Query failed (exit code ${result.exitCode})`;
+      sqlTestState.error  = `Query failed (exit code ${result.exitCode}) — see the client output above for details.`;
     }
   } catch (err: any) {
     sqlTestState.status = 'failed';
