@@ -2142,6 +2142,8 @@ async function sqltRun() {
   try {
     await api('POST', '/api/admin/sql-test/run', { engine, host, port, database, username, password, query });
     document.getElementById('sqlt-result').innerHTML = '';
+    document.getElementById('sqlt-table-wrap').style.display = 'none';
+    document.getElementById('sqlt-table-wrap').innerHTML = '';
     sqltStartPolling();
   } catch (e) { toast('Failed: ' + e.message, 'error'); }
 }
@@ -2205,11 +2207,36 @@ async function sqltRefresh() {
 
   const resultEl = document.getElementById('sqlt-result');
   if (state.status === 'success') {
-    resultEl.innerHTML = '<span style="color:var(--green)">✓ Query ran successfully — see the log below for output.</span>';
+    resultEl.innerHTML = state.result
+      ? '<span style="color:var(--green)">✓ Query ran successfully.</span>'
+      : '<span style="color:var(--green)">✓ Query ran successfully — see the log below for output.</span>';
   } else if (state.status === 'failed' && state.error) {
     resultEl.innerHTML = `<span style="color:#ef4444">✗ ${escHtml(state.error)}</span>`;
   } else {
     resultEl.innerHTML = '';
+  }
+
+  const tableWrap = document.getElementById('sqlt-table-wrap');
+  if (state.result && state.result.columns && state.result.columns.length) {
+    const r = state.result;
+    let html = `<div style="font-size:11px;color:var(--muted);margin-bottom:6px">
+      Sample result — ${r.rows.length} row${r.rows.length === 1 ? '' : 's'} shown${r.truncated ? ` (of ${r.totalRows} total)` : ''}
+    </div>`;
+    html += '<table style="width:100%;border-collapse:collapse;font-size:12px">'
+          + '<tr style="border-bottom:1px solid var(--border)">'
+          + r.columns.map(c => `<th style="text-align:left;padding:4px 8px;color:var(--muted);font-weight:500;white-space:nowrap">${escHtml(c)}</th>`).join('')
+          + '</tr>';
+    for (const row of r.rows) {
+      html += '<tr style="border-bottom:1px solid var(--border)">'
+            + row.map(v => `<td style="padding:4px 8px;font-family:monospace;white-space:nowrap">${escHtml(v)}</td>`).join('')
+            + '</tr>';
+    }
+    html += '</table>';
+    tableWrap.innerHTML = html;
+    tableWrap.style.display = '';
+  } else {
+    tableWrap.style.display = 'none';
+    tableWrap.innerHTML = '';
   }
 
   if (state.log) {

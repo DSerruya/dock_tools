@@ -1294,10 +1294,12 @@ const SQLT_VPN_HOST_CONFIG = path.join(
   process.env.HOST_SCRIPTS_DATA_PATH || '/app/scripts-data', 'sql-test-vpn', 'config.ovpn',
 );
 
-const SQLT_IMAGE     = 'alpine:3.19';
-const SQLT_CONTAINER = 'admin-sqltest';
-const SQLT_NETWORK   = process.env.DOCKER_NETWORK || 'bridge';
-const SQLT_PACKAGES  = 'openvpn postgresql-client mariadb-client freetds';
+const SQLT_IMAGE        = 'alpine:3.19';
+const SQLT_CONTAINER    = 'admin-sqltest';
+const SQLT_NETWORK      = process.env.DOCKER_NETWORK || 'bridge';
+const SQLT_PACKAGES     = 'openvpn postgresql-client mariadb-client freetds';
+const SQLT_SAMPLE_LIMIT = 50;
+const SQLT_TSQL_SEP     = '\t';
 
 type SqlEngine = 'postgres' | 'mysql' | 'mssql';
 
@@ -1305,15 +1307,91 @@ type SqlTestStatus =
   | 'idle' | 'pulling_image' | 'starting' | 'connecting_vpn' | 'checking_reachability'
   | 'connecting_db' | 'running_query' | 'success' | 'failed';
 
+interface SqlResultTable {
+  columns:   string[];
+  rows:      string[][];
+  totalRows: number;
+  truncated: boolean;
+}
+
 interface SqlTestState {
   running: boolean;
   status:  SqlTestStatus;
   log:     string;
   error?:  string;
   aborted: boolean;
+  result?: SqlResultTable;
 }
 
 let sqlTestState: SqlTestState = { running: false, status: 'idle', log: '', aborted: false };
+
+// One line per row, no embedded newlines inside a quoted field — a fine
+// simplification for a sampling/diagnostic tool, not a general CSV parser.
+function parseCsvTable(text: string): { columns: string[]; rows: string[][] } | null {
+  const lines = text.replace(/\r\n/g, '\n').split('\n').filter(l => l.length > 0);
+  if (lines.length === 0) return null;
+
+  function parseLine(line: string): string[] {
+    const out: string[] = [];
+    let field = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (inQuotes) {
+        if (c === '"') {
+          if (line[i + 1] === '"') { field += '"'; i++; } else inQuotes = false;
+        } else field += c;
+      } else if (c === '"') inQuotes = true;
+      else if (c === ',') { out.push(field); field = ''; }
+      else field += c;
+    }
+    out.push(field);
+    return out;
+  }
+
+  const columns = parseLine(lines[0]);
+  const rows    = lines.slice(1).map(parseLine);
+  return { columns, rows };
+}
+
+// mysql --batch (without --raw) escapes tabs/newlines within field values,
+// so a plain split on real tab characters is safe here.
+function parseTsvTable(text: string): { columns: string[]; rows: string[][] } | null {
+  const lines = text.replace(/\r\n/g, '\n').split('\n').filter(l => l.length > 0);
+  if (lines.length === 0) return null;
+  const columns = lines[0].split('\t');
+  const rows    = lines.slice(1).map(l => l.split('\t'));
+  return { columns, rows };
+}
+
+// tsql is an interactive client, not a batch tool — its output mixes in
+// locale/charset banners, "N>" prompts, and a trailing "(N rows affected)"
+// line even when piped. Best-effort: keep only delimiter-containing lines
+// and lines with a column count matching the header.
+function parseTsqlTable(text: string, sep: string): { columns: string[]; rows: string[][] } | null {
+  const noise = /^(locale (is|charset is)|\d+>\s*$|\(\d+ rows? affected\))/i;
+  const candidateLines = text.replace(/\r\n/g, '\n').split('\n')
+    .map(l => l.trim())
+    .filter(l => l.length > 0 && !noise.test(l) && l.includes(sep));
+  if (candidateLines.length === 0) return null;
+
+  const columns = candidateLines[0].split(sep).map(c => c.trim());
+  const rows = candidateLines.slice(1)
+    .map(l => l.split(sep).map(c => c.trim()))
+    .filter(r => r.length === columns.length && !r.every(c => /^-+$/.test(c)));
+  return columns.length > 0 ? { columns, rows } : null;
+}
+
+function buildResultTable(engine: SqlEngine, out: string): SqlResultTable | null {
+  const parsed = engine === 'postgres' ? parseCsvTable(out)
+    : engine === 'mysql' ? parseTsvTable(out)
+    : parseTsqlTable(out, SQLT_TSQL_SEP);
+  if (!parsed || parsed.columns.length === 0) return null;
+
+  const totalRows  = parsed.rows.length;
+  const truncated  = totalRows > SQLT_SAMPLE_LIMIT;
+  return { columns: parsed.columns, rows: parsed.rows.slice(0, SQLT_SAMPLE_LIMIT), totalRows, truncated };
+}
 
 function sqlTestLog(line: string): void {
   sqlTestState.log += line + '\n';
@@ -1344,10 +1422,10 @@ async function dockerExecRun(
     Cmd: cmd, Env: opts.env, Tty: true, AttachStdout: true, AttachStderr: true,
   });
   const stream = await exec.start({ hijack: true, stdin: false });
-  const out = await new Promise<string>((resolve, reject) => {
-    let buf = '';
-    stream.on('data',  (d: Buffer) => { buf += d.toString(); });
-    stream.on('end',   () => resolve(buf));
+  const chunks = await new Promise<Buffer[]>((resolve, reject) => {
+    const acc: Buffer[] = [];
+    stream.on('data',  (d: Buffer) => acc.push(d));
+    stream.on('end',   () => resolve(acc));
     stream.on('error', reject);
   });
   let exitCode: number | null = null;
@@ -1356,7 +1434,18 @@ async function dockerExecRun(
     if (info && !info.Running) { exitCode = info.ExitCode; break; }
     await new Promise(r => setTimeout(r, 200));
   }
-  return { out, exitCode };
+  return { out: stripDockerMuxHeader(Buffer.concat(chunks)).toString('utf8'), exitCode };
+}
+
+// Some Docker setups still send a single stdcopy multiplex frame header
+// (stream-type byte + 3 zero bytes + a 4-byte big-endian length) even when
+// the exec requested a Tty, which is supposed to disable that framing.
+// Strip it if present so client output isn't prefixed with binary noise —
+// only when the declared length exactly matches what follows, so real text
+// output starting with low byte values is never mistaken for a frame.
+function stripDockerMuxHeader(buf: Buffer): Buffer {
+  if (buf.length < 8 || buf[0] > 2 || buf[1] !== 0 || buf[2] !== 0 || buf[3] !== 0) return buf;
+  return buf.readUInt32BE(4) === buf.length - 8 ? buf.subarray(8) : buf;
 }
 
 // Zero-I/O TCP connect scan — purely diagnostic, doesn't affect the actual
@@ -1470,14 +1559,14 @@ async function runSqlOverVpnTest(params: {
     let result: { out: string; exitCode: number | null };
     try {
       if (engine === 'postgres') {
-        sqlTestLog('Running psql...');
+        sqlTestLog('Running psql (--csv output, for the sample table below)...');
         result = await dockerExecRun(SQLT_CONTAINER,
-          ['psql', '-h', host, '-p', port, '-U', username, '-d', database, '-c', query],
+          ['psql', '-h', host, '-p', port, '-U', username, '-d', database, '--csv', '-c', query],
           { env: [`PGPASSWORD=${password}`] });
       } else if (engine === 'mysql') {
-        sqlTestLog('Running mysql client...');
+        sqlTestLog('Running mysql client (--batch output, for the sample table below)...');
         result = await dockerExecRun(SQLT_CONTAINER,
-          ['mysql', '-h', host, '-P', port, '-u', username, '-D', database, '-e', query],
+          ['mysql', '-h', host, '-P', port, '-u', username, '-D', database, '-B', '-e', query],
           { env: [`MYSQL_PWD=${password}`] });
       } else {
         sqlTestLog('Running tsql...');
@@ -1487,12 +1576,15 @@ async function runSqlOverVpnTest(params: {
         // values, never string-concatenated) so we don't need to attach
         // stdin over the exec's hijacked stream, which is flaky combined
         // with Tty and was the likely cause of runs silently returning no
-        // output and no exit code.
+        // output and no exit code. -t sets a delimiter so the output below
+        // can be parsed into the sample table (best-effort — tsql is an
+        // interactive client, not a true batch tool).
         result = await dockerExecRun(SQLT_CONTAINER,
-          ['sh', '-c', 'printf "%s\\ngo\\nquit\\n" "$SQLT_Q" | tsql -H "$SQLT_HOST" -p "$SQLT_PORT" -U "$SQLT_USER" -P "$SQLT_PASS" -D "$SQLT_DB"'],
+          ['sh', '-c', 'printf "%s\\ngo\\nquit\\n" "$SQLT_Q" | tsql -H "$SQLT_HOST" -p "$SQLT_PORT" -U "$SQLT_USER" -P "$SQLT_PASS" -D "$SQLT_DB" -t "$SQLT_SEP"'],
           { env: [
             `SQLT_Q=${query}`, `SQLT_HOST=${host}`, `SQLT_PORT=${port}`,
             `SQLT_USER=${username}`, `SQLT_PASS=${password}`, `SQLT_DB=${database}`,
+            `SQLT_SEP=${SQLT_TSQL_SEP}`,
           ] });
       }
     } catch (err: any) {
@@ -1514,6 +1606,13 @@ async function runSqlOverVpnTest(params: {
     if (result.exitCode === 0) {
       sqlTestState.status = 'success';
       sqlTestLog('Query finished successfully.');
+      const table = buildResultTable(engine, result.out);
+      if (table) {
+        sqlTestState.result = table;
+        sqlTestLog(`Parsed a sample table — ${table.columns.length} column(s), showing ${table.rows.length} of ${table.totalRows} row(s).`);
+      } else {
+        sqlTestLog('Query succeeded, but the output could not be parsed into a table — see the raw output above.');
+      }
     } else if (result.exitCode === null) {
       sqlTestState.status = 'failed';
       sqlTestState.error  = 'The client process never reported an exit code — see the log above for whether the client tools were ready and whether the port was reachable.';
