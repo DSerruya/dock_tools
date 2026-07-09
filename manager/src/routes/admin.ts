@@ -1299,7 +1299,7 @@ const SQLT_CONTAINER    = 'admin-sqltest';
 const SQLT_NETWORK      = process.env.DOCKER_NETWORK || 'bridge';
 const SQLT_PACKAGES     = 'openvpn postgresql-client mariadb-client freetds';
 const SQLT_SAMPLE_LIMIT = 50;
-const SQLT_TSQL_SEP     = '\t';
+const SQLT_MSSQL_SEP    = '\t';
 
 type SqlEngine = 'postgres' | 'mysql' | 'mssql';
 
@@ -1364,11 +1364,11 @@ function parseTsvTable(text: string): { columns: string[]; rows: string[][] } | 
   return { columns, rows };
 }
 
-// tsql is an interactive client, not a batch tool — its output mixes in
-// locale/charset banners, "N>" prompts, and a trailing "(N rows affected)"
-// line even when piped. Best-effort: keep only delimiter-containing lines
-// and lines with a column count matching the header.
-function parseTsqlTable(text: string, sep: string): { columns: string[]; rows: string[][] } | null {
+// bsqldb's output is delimiter-separated (via -t) but can still carry a
+// stray banner/severity line or a trailing separator row. Best-effort: keep
+// only delimiter-containing lines with a column count matching the header,
+// and drop any row that's just dashes (a common ASCII-table artifact).
+function parseFreetdsTable(text: string, sep: string): { columns: string[]; rows: string[][] } | null {
   const noise = /^(locale (is|charset is)|\d+>\s*$|\(\d+ rows? affected\))/i;
   const candidateLines = text.replace(/\r\n/g, '\n').split('\n')
     .map(l => l.trim())
@@ -1385,7 +1385,7 @@ function parseTsqlTable(text: string, sep: string): { columns: string[]; rows: s
 function buildResultTable(engine: SqlEngine, out: string): SqlResultTable | null {
   const parsed = engine === 'postgres' ? parseCsvTable(out)
     : engine === 'mysql' ? parseTsvTable(out)
-    : parseTsqlTable(out, SQLT_TSQL_SEP);
+    : parseFreetdsTable(out, SQLT_MSSQL_SEP);
   if (!parsed || parsed.columns.length === 0) return null;
 
   const totalRows  = parsed.rows.length;
@@ -1532,11 +1532,11 @@ async function runSqlOverVpnTest(params: {
 
     // The package install kicked off alongside the VPN handshake above —
     // give it a little more room if it hasn't landed yet.
-    sqlTestLog('Waiting for SQL client tools to finish installing (psql, mysql, tsql, nc)...');
+    sqlTestLog('Waiting for SQL client tools to finish installing (psql, mysql, bsqldb, nc)...');
     let toolsReady = false;
     for (let i = 0; i < 20; i++) {
       if (sqlTestState.aborted) break;
-      const check = await dockerExecRun(SQLT_CONTAINER, ['sh', '-c', 'which psql mysql tsql nc >/dev/null 2>&1 && echo ready']);
+      const check = await dockerExecRun(SQLT_CONTAINER, ['sh', '-c', 'which psql mysql bsqldb nc >/dev/null 2>&1 && echo ready']);
       if (check.out.includes('ready')) { toolsReady = true; break; }
       await new Promise(r => setTimeout(r, 1000));
     }
@@ -1583,22 +1583,25 @@ async function runSqlOverVpnTest(params: {
           ['mysql', '-h', host, '-P', port, '-u', username, '-D', database, '-B', '-e', query],
           { env: [`MYSQL_PWD=${password}`] });
       } else {
-        sqlTestLog('Running tsql...');
-        // freetds' tsql has no "-c" flag for a single query — it's fed as a
-        // batch terminated by a bare "go" line, same convention as isql/osql.
-        // That's piped inside the container's own shell (via env-var-quoted
-        // values, never string-concatenated) so we don't need to attach
-        // stdin over the exec's hijacked stream, which is flaky combined
-        // with Tty and was the likely cause of runs silently returning no
-        // output and no exit code. -t sets a delimiter so the output below
-        // can be parsed into the sample table (best-effort — tsql is an
-        // interactive client, not a true batch tool).
-        result = await dockerExecRun(SQLT_CONTAINER,
-          ['sh', '-c', 'printf "%s\\ngo\\nquit\\n" "$SQLT_Q" | tsql -H "$SQLT_HOST" -p "$SQLT_PORT" -U "$SQLT_USER" -P "$SQLT_PASS" -D "$SQLT_DB" -t "$SQLT_SEP"'],
+        sqlTestLog("Running bsqldb (FreeTDS's own docs point away from tsql for scripted queries — tsql is a diagnostic tool only and doesn't reliably recognize a piped 'go')...");
+        // bsqldb takes its target from freetds.conf's server-name lookup
+        // rather than a raw host:port flag, so a throwaway named entry is
+        // written first. The query is still fed via stdin (batch terminated
+        // by a bare "go" line) with every value passed through env vars
+        // quoted as "$VAR" — never string-concatenated — so nothing here
+        // can be reinterpreted as shell syntax.
+        const bsqldbScript = `cat >> /etc/freetds.conf <<CONF
+[sqltarget]
+    host = $SQLT_HOST
+    port = $SQLT_PORT
+    tds version = auto
+CONF
+printf "%s\\ngo\\n" "$SQLT_Q" | bsqldb -S sqltarget -D "$SQLT_DB" -U "$SQLT_USER" -P "$SQLT_PASS" -t "$SQLT_SEP"`;
+        result = await dockerExecRun(SQLT_CONTAINER, ['sh', '-c', bsqldbScript],
           { env: [
             `SQLT_Q=${query}`, `SQLT_HOST=${host}`, `SQLT_PORT=${port}`,
             `SQLT_USER=${username}`, `SQLT_PASS=${password}`, `SQLT_DB=${database}`,
-            `SQLT_SEP=${SQLT_TSQL_SEP}`,
+            `SQLT_SEP=${SQLT_MSSQL_SEP}`,
           ] });
       }
     } catch (err: any) {

@@ -713,10 +713,10 @@
         <button class="btn btn-primary btn-sm" id="sqlt-run-btn" onclick="sqltRun()">▶ Run Query</button>
         <button class="btn btn-ghost btn-sm" id="sqlt-stop-btn" style="display:none" onclick="sqltStop()">⏹ Stop</button>
         <button class="btn btn-ghost btn-sm" id="sqlt-clean-btn" onclick="sqltClean()" title="Remove a stuck test container">🗑 Clean Test Container</button>
+        <button class="btn btn-ghost btn-sm" id="sqlt-download-btn" style="display:none" onclick="sqltDownloadLog()" title="Download the full connection + query log as .txt">⬇ Download Output</button>
         <span id="sqlt-status-badge" style="font-size:12px"></span>
       </div>
       <div id="sqlt-result" style="font-size:12px;margin-bottom:8px;line-height:1.6"></div>
-      <div id="sqlt-table-wrap" style="display:none;overflow-x:auto;margin-bottom:12px"></div>
       <div id="sqlt-log-wrap" style="display:none">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;cursor:pointer" onclick="sqltToggleLog()">
           <span style="font-size:12px;font-weight:600;color:var(--muted)">Query log</span>
@@ -727,6 +727,7 @@
                     background:#0a0c12;border:1px solid var(--border);border-radius:6px;
                     padding:10px;max-height:260px;overflow-y:auto;color:#a3e635;white-space:pre-wrap;word-break:break-all"></div>
       </div>
+      <div id="sqlt-table-wrap" style="display:none;overflow-x:auto;margin-top:12px"></div>
     </div>
   </div>
 

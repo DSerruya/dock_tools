@@ -2144,6 +2144,7 @@ async function sqltRun() {
     document.getElementById('sqlt-result').innerHTML = '';
     document.getElementById('sqlt-table-wrap').style.display = 'none';
     document.getElementById('sqlt-table-wrap').innerHTML = '';
+    document.getElementById('sqlt-download-btn').style.display = 'none';
     sqltStartPolling();
   } catch (e) { toast('Failed: ' + e.message, 'error'); }
 }
@@ -2178,6 +2179,17 @@ function sqltToggleLog() {
   box.style.display  = shown ? 'none' : '';
   toggle.textContent = shown ? '▾ show' : '▴ hide';
   if (!shown) box.scrollTop = box.scrollHeight;
+}
+
+function sqltDownloadLog() {
+  const text   = document.getElementById('sqlt-log').textContent || '';
+  const engine = document.getElementById('sqlt-engine').value || 'sql';
+  const blob   = new Blob([text], { type: 'text/plain' });
+  const a      = document.createElement('a');
+  a.href       = URL.createObjectURL(blob);
+  a.download   = `sql-over-vpn-test-${engine}.txt`;
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
 
 const SQLT_STATUS = {
@@ -2241,6 +2253,7 @@ async function sqltRefresh() {
 
   if (state.log) {
     document.getElementById('sqlt-log-wrap').style.display = '';
+    document.getElementById('sqlt-download-btn').style.display = '';
     const log = document.getElementById('sqlt-log');
     log.textContent = state.log;
     if (state.running) log.scrollTop = log.scrollHeight;
