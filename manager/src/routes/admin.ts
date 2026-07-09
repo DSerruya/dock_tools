@@ -1408,18 +1408,22 @@ async function cleanupSqlTestContainer(): Promise<void> {
   } catch { /* nothing to clean up */ }
 }
 
-// Cmd is always passed straight to execve — never through `sh -c` — so
-// connection fields and the query itself can't be reinterpreted as shell
-// syntax. Secrets go through Env, not argv, to keep them out of `docker top`.
-// Exit code can lag a moment behind the output stream closing, so poll
-// briefly instead of trusting a single inspect() right after 'end'.
+// Untrusted values (connection fields, the query) are always passed via Env
+// and referenced quoted ("$VAR") in any `sh -c` command string here, never
+// concatenated into the command text itself, so they can't be reinterpreted
+// as shell syntax — and stay out of `docker top` since they're not argv.
+// No Tty: some clients (tsql, notably) detect a tty on stdout and switch
+// into interactive/readline behavior, which misbehaves when stdin is
+// actually a non-interactive pipe. Exit code can lag a moment behind the
+// output stream closing, so poll briefly instead of trusting a single
+// inspect() right after 'end'.
 async function dockerExecRun(
   containerName: string,
   cmd: string[],
   opts: { env?: string[] } = {},
 ): Promise<{ out: string; exitCode: number | null }> {
   const exec = await docker.getContainer(containerName).exec({
-    Cmd: cmd, Env: opts.env, Tty: true, AttachStdout: true, AttachStderr: true,
+    Cmd: cmd, Env: opts.env, AttachStdout: true, AttachStderr: true,
   });
   const stream = await exec.start({ hijack: true, stdin: false });
   const chunks = await new Promise<Buffer[]>((resolve, reject) => {
@@ -1434,18 +1438,28 @@ async function dockerExecRun(
     if (info && !info.Running) { exitCode = info.ExitCode; break; }
     await new Promise(r => setTimeout(r, 200));
   }
-  return { out: stripDockerMuxHeader(Buffer.concat(chunks)).toString('utf8'), exitCode };
+  return { out: demuxDockerStream(Buffer.concat(chunks)).toString('utf8'), exitCode };
 }
 
-// Some Docker setups still send a single stdcopy multiplex frame header
-// (stream-type byte + 3 zero bytes + a 4-byte big-endian length) even when
-// the exec requested a Tty, which is supposed to disable that framing.
-// Strip it if present so client output isn't prefixed with binary noise —
-// only when the declared length exactly matches what follows, so real text
-// output starting with low byte values is never mistaken for a frame.
-function stripDockerMuxHeader(buf: Buffer): Buffer {
-  if (buf.length < 8 || buf[0] > 2 || buf[1] !== 0 || buf[2] !== 0 || buf[3] !== 0) return buf;
-  return buf.readUInt32BE(4) === buf.length - 8 ? buf.subarray(8) : buf;
+// Without a Tty, Docker multiplexes exec output — each write flush from the
+// process gets its own 8-byte header (stream-type byte, 3 zero bytes, 4-byte
+// big-endian length), not just one frame for the whole session. Walk the
+// buffer frame-by-frame and concatenate just the payloads. Stops (returning
+// what was parsed so far, or the original buffer if nothing parsed) as soon
+// as something doesn't look like a valid frame header, so genuinely
+// unframed output is never corrupted.
+function demuxDockerStream(buf: Buffer): Buffer {
+  const payloads: Buffer[] = [];
+  let offset = 0;
+  while (offset + 8 <= buf.length) {
+    const streamType = buf[offset];
+    if (streamType > 2 || buf[offset + 1] !== 0 || buf[offset + 2] !== 0 || buf[offset + 3] !== 0) break;
+    const len = buf.readUInt32BE(offset + 4);
+    if (offset + 8 + len > buf.length) break;
+    payloads.push(buf.subarray(offset + 8, offset + 8 + len));
+    offset += 8 + len;
+  }
+  return payloads.length > 0 ? Buffer.concat(payloads) : buf;
 }
 
 // Zero-I/O TCP connect scan — purely diagnostic, doesn't affect the actual
