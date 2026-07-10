@@ -1364,22 +1364,57 @@ function parseTsvTable(text: string): { columns: string[]; rows: string[][] } | 
   return { columns, rows };
 }
 
-// bsqldb's output is delimiter-separated (via -t) but can still carry a
-// stray banner/severity line or a trailing separator row. Best-effort: keep
-// only delimiter-containing lines with a column count matching the header,
-// and drop any row that's just dashes (a common ASCII-table artifact).
-function parseFreetdsTable(text: string, sep: string): { columns: string[]; rows: string[][] } | null {
-  const noise = /^(locale (is|charset is)|\d+>\s*$|\(\d+ rows? affected\))/i;
-  const candidateLines = text.replace(/\r\n/g, '\n').split('\n')
-    .map(l => l.trim())
-    .filter(l => l.length > 0 && !noise.test(l) && l.includes(sep));
-  if (candidateLines.length === 0) return null;
+// bsqldb -v prints a "Metadata" table listing every column's real name in
+// order — more reliable than the "Data" section's own header line, which
+// leaves wide (varchar(max)-style) columns blank. Those same wide columns
+// get hex-encoded (0x...) in the data row rather than printed as text, so
+// values are decoded back after parsing.
+//
+// Per bsqldb's own docs, -v writes all verbose data to stderr specifically
+// "so as not to interfere with the data stream" on stdout — and that split
+// is more thorough than it sounds: in practice everything descriptive (the
+// "Data" label, its header/dashes rows, "N rows affected") lands on stderr
+// too, alongside Metadata. stdout carries nothing but bare separator-joined
+// value lines. Metadata and rows are therefore parsed from separate stream
+// captures, not a merged blob — merging them chronologically (as Docker's
+// frame arrival order would) can splice a stdout flush into the middle of
+// a stderr line, and vice versa.
+function parseMssqlTable(stdout: string, stderr: string, sep: string): { columns: string[]; rows: string[][] } | null {
+  const metaLines = stderr.replace(/\r\n/g, '\n').split('\n');
+  const metaIdx = metaLines.findIndex(l => l.trim() === 'Metadata');
+  if (metaIdx === -1) return null;
+  const columns: string[] = [];
+  for (let i = metaIdx + 1; i < metaLines.length; i++) {
+    const l = metaLines[i];
+    if (/^\s*col\s+name\s+source\s+type/i.test(l)) continue;
+    if (/^-+\s+-+/.test(l.trim())) continue;
+    const m = l.trim().match(/^(\d+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\d+)\s+(\d+)\s*$/);
+    if (m) { columns.push(m[2]); continue; }
+    if (columns.length > 0) break; // metadata table ended
+  }
+  if (columns.length === 0) return null;
 
-  const columns = candidateLines[0].split(sep).map(c => c.trim());
-  const rows = candidateLines.slice(1)
-    .map(l => l.split(sep).map(c => c.trim()))
-    .filter(r => r.length === columns.length && !r.every(c => /^-+$/.test(c)));
-  return columns.length > 0 ? { columns, rows } : null;
+  // stdout has no "Data" label/header/dashes to skip past — every
+  // separator-containing line is a candidate row. The header/dash checks
+  // below are defensive only, in case a different bsqldb version puts them
+  // here after all.
+  const rows: string[][] = [];
+  for (const l of stdout.replace(/\r\n/g, '\n').split('\n')) {
+    if (!l.includes(sep)) continue;
+    const cells = l.split(sep).map(c => c.trim());
+    if (cells.length !== columns.length) continue;
+    const isHeaderRow = cells.every((c, idx) => c === '' || c.toLowerCase() === columns[idx].toLowerCase());
+    if (isHeaderRow) continue;
+    const isDashRow = cells.every(c => c === '' || /^-+$/.test(c));
+    if (isDashRow) continue;
+    rows.push(cells.map(decodeMssqlCell));
+  }
+  return { columns, rows };
+}
+
+function decodeMssqlCell(cell: string): string {
+  if (!/^0x[0-9a-fA-F]+$/.test(cell)) return cell;
+  try { return Buffer.from(cell.slice(2), 'hex').toString('utf8'); } catch { return cell; }
 }
 
 // FreeTDS's own wire-level protocol trace (set via the TDSDUMP env var) —
@@ -1402,10 +1437,10 @@ async function readTdsDumpExcerpt(): Promise<string | null> {
   return `${head.out}\n... (truncated — ${size} bytes total, showing start + end) ...\n${tail.out}`;
 }
 
-function buildResultTable(engine: SqlEngine, out: string): SqlResultTable | null {
-  const parsed = engine === 'postgres' ? parseCsvTable(out)
-    : engine === 'mysql' ? parseTsvTable(out)
-    : parseFreetdsTable(out, SQLT_MSSQL_SEP);
+function buildResultTable(engine: SqlEngine, stdout: string, stderr: string): SqlResultTable | null {
+  const parsed = engine === 'postgres' ? parseCsvTable(stdout)
+    : engine === 'mysql' ? parseTsvTable(stdout)
+    : parseMssqlTable(stdout, stderr, SQLT_MSSQL_SEP);
   if (!parsed || parsed.columns.length === 0) return null;
 
   const totalRows  = parsed.rows.length;
@@ -1441,7 +1476,7 @@ async function dockerExecRun(
   containerName: string,
   cmd: string[],
   opts: { env?: string[] } = {},
-): Promise<{ out: string; exitCode: number | null }> {
+): Promise<{ out: string; stdout: string; stderr: string; exitCode: number | null }> {
   const exec = await docker.getContainer(containerName).exec({
     Cmd: cmd, Env: opts.env, AttachStdout: true, AttachStderr: true,
   });
@@ -1458,28 +1493,39 @@ async function dockerExecRun(
     if (info && !info.Running) { exitCode = info.ExitCode; break; }
     await new Promise(r => setTimeout(r, 200));
   }
-  return { out: demuxDockerStream(Buffer.concat(chunks)).toString('utf8'), exitCode };
+  const { stdout, stderr } = demuxDockerStream(Buffer.concat(chunks));
+  const stdoutStr = stdout.toString('utf8');
+  const stderrStr = stderr.toString('utf8');
+  return { out: stdoutStr + stderrStr, stdout: stdoutStr, stderr: stderrStr, exitCode };
 }
 
 // Without a Tty, Docker multiplexes exec output — each write flush from the
 // process gets its own 8-byte header (stream-type byte, 3 zero bytes, 4-byte
 // big-endian length), not just one frame for the whole session. Walk the
-// buffer frame-by-frame and concatenate just the payloads. Stops (returning
-// what was parsed so far, or the original buffer if nothing parsed) as soon
-// as something doesn't look like a valid frame header, so genuinely
-// unframed output is never corrupted.
-function demuxDockerStream(buf: Buffer): Buffer {
-  const payloads: Buffer[] = [];
+// buffer frame-by-frame, grouping payloads by stream type (1=stdout,
+// 2=stderr) instead of flattening them in arrival order — a process that
+// writes to both concurrently (like bsqldb -v, which puts verbose metadata
+// on stderr and actual result rows on stdout) can otherwise come out with
+// lines from one stream spliced into the middle of the other. Falls back to
+// treating everything as stdout if nothing parses as a valid frame, so
+// genuinely unframed output is never corrupted.
+function demuxDockerStream(buf: Buffer): { stdout: Buffer; stderr: Buffer } {
+  const stdoutParts: Buffer[] = [];
+  const stderrParts: Buffer[] = [];
   let offset = 0;
+  let sawFrame = false;
   while (offset + 8 <= buf.length) {
     const streamType = buf[offset];
     if (streamType > 2 || buf[offset + 1] !== 0 || buf[offset + 2] !== 0 || buf[offset + 3] !== 0) break;
     const len = buf.readUInt32BE(offset + 4);
     if (offset + 8 + len > buf.length) break;
-    payloads.push(buf.subarray(offset + 8, offset + 8 + len));
+    const payload = buf.subarray(offset + 8, offset + 8 + len);
+    (streamType === 2 ? stderrParts : stdoutParts).push(payload);
     offset += 8 + len;
+    sawFrame = true;
   }
-  return payloads.length > 0 ? Buffer.concat(payloads) : buf;
+  if (!sawFrame) return { stdout: buf, stderr: Buffer.alloc(0) };
+  return { stdout: Buffer.concat(stdoutParts), stderr: Buffer.concat(stderrParts) };
 }
 
 // Zero-I/O TCP connect scan — purely diagnostic, doesn't affect the actual
@@ -1590,7 +1636,7 @@ async function runSqlOverVpnTest(params: {
     sqlTestLog(`Connecting to ${engine} at ${host}:${port}/${database} as '${username}'...`);
 
     sqlTestState.status = 'running_query';
-    let result: { out: string; exitCode: number | null };
+    let result: { out: string; stdout: string; stderr: string; exitCode: number | null };
     try {
       if (engine === 'postgres') {
         sqlTestLog('Running psql (--csv output, for the sample table below)...');
@@ -1630,12 +1676,16 @@ printf "%s\\ngo\\n" "$SQLT_Q" | bsqldb -S sqltarget -D "$SQLT_DB" -U "$SQLT_USER
       }
     } catch (err: any) {
       sqlTestLog(`Error launching the ${engine} client: ${err.message}`);
-      result = { out: '', exitCode: null };
+      result = { out: '', stdout: '', stderr: '', exitCode: null };
     }
 
-    sqlTestLog('--- client output ---');
-    sqlTestLog(result.out.trim() || '(client produced no output)');
-    sqlTestLog('--- end output ---');
+    sqlTestLog('--- client stdout ---');
+    sqlTestLog(result.stdout.trim() || '(no stdout)');
+    if (result.stderr.trim()) {
+      sqlTestLog('--- client stderr ---');
+      sqlTestLog(result.stderr.trim());
+    }
+    sqlTestLog('--- end client output ---');
     sqlTestLog(`Exit code: ${result.exitCode === null ? 'unknown' : result.exitCode}`);
 
     if (engine === 'mssql') {
@@ -1657,7 +1707,7 @@ printf "%s\\ngo\\n" "$SQLT_Q" | bsqldb -S sqltarget -D "$SQLT_DB" -U "$SQLT_USER
     if (result.exitCode === 0) {
       sqlTestState.status = 'success';
       sqlTestLog('Query finished successfully.');
-      const table = buildResultTable(engine, result.out);
+      const table = buildResultTable(engine, result.stdout, result.stderr);
       if (table) {
         sqlTestState.result = table;
         sqlTestLog(`Parsed a sample table — ${table.columns.length} column(s), showing ${table.rows.length} of ${table.totalRows} row(s).`);
