@@ -12,10 +12,13 @@ on Windows since FreeTDS isn't native there.
 Requires admin/root (openvpn needs to create a network adapter) plus:
     Debian/Ubuntu: sudo apt-get install -y openvpn freetds-bin
     macOS (Homebrew): brew install openvpn freetds
-    Windows: install the OpenVPN community client (openvpn.exe on PATH) and
-        the SQL Server command-line tools (winget install sqlcmd), then run
-        this script from an elevated ("Run as Administrator") shell —
-        Windows has no `sudo`, so don't prefix the command with one.
+    Windows: openvpn.exe and sqlcmd are auto-installed via `winget` if
+        missing (packages OpenVPNTechnologies.OpenVPN and Microsoft.Sqlcmd).
+        Run this script from an elevated ("Run as Administrator") shell —
+        Windows has no `sudo`, so don't prefix the command with one. If
+        winget itself isn't available, install manually:
+        https://openvpn.net/community-downloads/
+        https://learn.microsoft.com/en-us/sql/tools/sqlcmd/sqlcmd-download-install
 """
 
 import getpass
@@ -35,6 +38,11 @@ VPN_HANDSHAKE_TIMEOUT = 30  # seconds to wait for "Initialization Sequence Compl
 TCP_CHECK_TIMEOUT = 5
 MSSQL_SEP = '\t'
 
+WINGET_PACKAGES = {
+    'openvpn': 'OpenVPNTechnologies.OpenVPN',
+    'sqlcmd':  'Microsoft.Sqlcmd',
+}
+
 
 def fail(msg):
     print(f"\n✗ {msg}", file=sys.stderr)
@@ -48,17 +56,81 @@ def is_admin():
     return os.geteuid() == 0
 
 
+# A process's PATH is a snapshot taken at startup — winget updates the
+# registry, not this process's environment, so a tool it just installed
+# stays invisible to shutil.which() until PATH is re-read from there.
+def refresh_windows_path():
+    import winreg
+
+    def read_reg_path(root, subkey):
+        try:
+            with winreg.OpenKey(root, subkey) as key:
+                value, _ = winreg.QueryValueEx(key, 'Path')
+                return value
+        except OSError:
+            return ''
+
+    machine_path = read_reg_path(winreg.HKEY_LOCAL_MACHINE, r'SYSTEM\CurrentControlSet\Control\Session Manager\Environment')
+    user_path    = read_reg_path(winreg.HKEY_CURRENT_USER, r'Environment')
+    # The official OpenVPN MSI (which the winget package just wraps) has used
+    # this fixed install path across releases but has not reliably added
+    # itself to PATH — included as a last-resort fallback alongside whatever
+    # the registry now reports.
+    known_dirs = [r'C:\Program Files\OpenVPN\bin']
+
+    parts = os.environ.get('PATH', '').split(';') + machine_path.split(';') + user_path.split(';') + known_dirs
+    seen = set()
+    deduped = []
+    for p in parts:
+        if p and p not in seen:
+            seen.add(p)
+            deduped.append(p)
+    os.environ['PATH'] = ';'.join(deduped)
+
+
+def winget_install(package_id):
+    print(f"Installing {package_id} via winget...")
+    try:
+        proc = subprocess.run(
+            ['winget', 'install', '--id', package_id, '-e', '--silent',
+             '--accept-package-agreements', '--accept-source-agreements'],
+            capture_output=True, text=True, timeout=300,
+        )
+    except FileNotFoundError:
+        print("winget itself is not available on this machine.")
+        return False
+    except subprocess.TimeoutExpired:
+        print("winget install timed out after 5 minutes.")
+        return False
+    output = (proc.stdout or '') + (proc.stderr or '')
+    if output.strip():
+        print(output.strip())
+    if proc.returncode != 0:
+        print(f"winget exited with code {proc.returncode}.")
+        return False
+    return True
+
+
+def ensure_windows_tool(command, winget_id, manual_url):
+    if shutil.which(command):
+        return
+    print(f"\n{command} not found on PATH.")
+    if winget_install(winget_id):
+        refresh_windows_path()
+    if not shutil.which(command):
+        fail(f"{command} still not found after attempting install via winget. "
+             f"Close and reopen this (elevated) shell and try again, or install manually: {manual_url}")
+    print(f"✓ {command} is now available.")
+
+
 def check_prereqs():
     if IS_WINDOWS:
         if not is_admin():
             fail("Must run from an elevated shell (right-click PowerShell/cmd → 'Run as Administrator') — "
                  "openvpn needs to install a TAP/Wintun adapter. Windows has no `sudo`.")
-        if not shutil.which('openvpn'):
-            fail("openvpn.exe not found on PATH. Install the OpenVPN community client: "
-                 "https://openvpn.net/community-downloads/")
-        if not shutil.which('sqlcmd'):
-            fail("sqlcmd not found on PATH. Install it: winget install sqlcmd "
-                 "(or the 'Microsoft Command Line Utilities for SQL Server' package).")
+        ensure_windows_tool('openvpn', WINGET_PACKAGES['openvpn'], 'https://openvpn.net/community-downloads/')
+        ensure_windows_tool('sqlcmd', WINGET_PACKAGES['sqlcmd'],
+                             'https://learn.microsoft.com/en-us/sql/tools/sqlcmd/sqlcmd-download-install')
     else:
         if not is_admin():
             fail("Must run as root (openvpn needs to create a tun device). Re-run with sudo.")
