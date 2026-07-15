@@ -22,14 +22,17 @@ Requires admin/root (openvpn needs to create a network adapter) plus:
 """
 
 import getpass
+import json
 import os
 import platform
+import re
 import shutil
 import socket
 import subprocess
 import sys
 import tempfile
 import time
+import urllib.request
 from pathlib import Path
 
 IS_WINDOWS = platform.system() == 'Windows'
@@ -111,14 +114,87 @@ def winget_install(package_id):
     return True
 
 
+def http_get(url, headers=None):
+    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0', **(headers or {})})
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return resp.read()
+
+
+def download_to(url, dest_path):
+    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+    with urllib.request.urlopen(req, timeout=120) as resp, open(dest_path, 'wb') as f:
+        shutil.copyfileobj(resp, f)
+
+
+# winget isn't present on plain Windows Server (it ships via the Microsoft
+# Store app, which Server editions lack) — these resolve the *current*
+# installer URL at run time instead of a version hardcoded here, since a
+# pinned version number would go stale the next time either project ships.
+def find_openvpn_msi_url():
+    html = http_get('https://openvpn.net/community-downloads/').decode('utf-8', errors='ignore')
+    matches = re.findall(r'https://swupdate\.openvpn\.org/community/releases/OpenVPN-[\d.]+-I\d+-amd64\.msi', html)
+    return matches[0] if matches else None
+
+
+def find_sqlcmd_msi_url():
+    data = json.loads(http_get(
+        'https://api.github.com/repos/microsoft/go-sqlcmd/releases/latest',
+        headers={'Accept': 'application/vnd.github+json'},
+    ))
+    for asset in data.get('assets', []):
+        if asset.get('name') == 'sqlcmd-amd64.msi':
+            return asset.get('browser_download_url')
+    return None
+
+
+MSI_FINDERS = {
+    'openvpn': find_openvpn_msi_url,
+    'sqlcmd':  find_sqlcmd_msi_url,
+}
+
+
+def msi_install(msi_path):
+    print(f"Running silent install: msiexec /i {msi_path} /qn /norestart ...")
+    proc = subprocess.run(['msiexec', '/i', str(msi_path), '/qn', '/norestart'],
+                           capture_output=True, text=True, timeout=300)
+    if proc.stdout.strip():
+        print(proc.stdout.strip())
+    if proc.stderr.strip():
+        print(proc.stderr.strip())
+    if proc.returncode != 0:
+        print(f"msiexec exited with code {proc.returncode}.")
+        return False
+    return True
+
+
+def direct_install(command):
+    print(f"Falling back to a direct download for {command} (winget unavailable)...")
+    try:
+        url = MSI_FINDERS[command]()
+        if not url:
+            print(f"Could not find a current download URL for {command}.")
+            return False
+        print(f"Downloading {url} ...")
+        with tempfile.TemporaryDirectory(prefix='vpn-test-dl-') as tmp:
+            msi_path = Path(tmp) / f"{command}.msi"
+            download_to(url, msi_path)
+            return msi_install(msi_path)
+    except Exception as e:
+        print(f"Direct download install failed: {e}")
+        return False
+
+
 def ensure_windows_tool(command, winget_id, manual_url):
     if shutil.which(command):
         return
     print(f"\n{command} not found on PATH.")
-    if winget_install(winget_id):
+    installed = winget_install(winget_id)
+    if not installed:
+        installed = direct_install(command)
+    if installed:
         refresh_windows_path()
     if not shutil.which(command):
-        fail(f"{command} still not found after attempting install via winget. "
+        fail(f"{command} still not found after attempting automatic install. "
              f"Close and reopen this (elevated) shell and try again, or install manually: {manual_url}")
     print(f"✓ {command} is now available.")
 
