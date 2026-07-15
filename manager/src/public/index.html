@@ -714,6 +714,12 @@
         <button class="btn btn-ghost btn-sm" id="sqlt-stop-btn" style="display:none" onclick="sqltStop()">⏹ Stop</button>
         <button class="btn btn-ghost btn-sm" id="sqlt-clean-btn" onclick="sqltClean()" title="Remove a stuck test container">🗑 Clean Test Container</button>
         <button class="btn btn-ghost btn-sm" id="sqlt-download-btn" style="display:none" onclick="sqltDownloadLog()" title="Download the full connection + query log as .txt">⬇ Download Output</button>
+        <span style="width:1px;height:20px;background:var(--border);margin:0 2px"></span>
+        <button class="btn btn-ghost btn-sm" id="sqlt-save-params-btn" onclick="sqltSaveParams()" title="Download engine, database, host, port, username and query as a reusable JSON file (password is never included)">⬇ Save Parameters</button>
+        <label class="btn btn-ghost btn-sm" style="cursor:pointer;margin:0" title="Load engine, database, host, port, username and query from a previously saved JSON file">
+          ⬆ Load Parameters
+          <input type="file" id="sqlt-params-file-input" accept=".json,application/json" style="display:none" onchange="sqltParamsFileSelected()" />
+        </label>
         <span id="sqlt-status-badge" style="font-size:12px"></span>
       </div>
       <div id="sqlt-result" style="font-size:12px;margin-bottom:8px;line-height:1.6"></div>

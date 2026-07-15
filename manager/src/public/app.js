@@ -2192,6 +2192,52 @@ function sqltDownloadLog() {
   URL.revokeObjectURL(a.href);
 }
 
+function sqltSaveParams() {
+  const params = {
+    engine:   document.getElementById('sqlt-engine').value,
+    database: document.getElementById('sqlt-database').value.trim(),
+    host:     document.getElementById('sqlt-host').value.trim(),
+    port:     document.getElementById('sqlt-port').value.trim(),
+    username: document.getElementById('sqlt-username').value.trim(),
+    query:    document.getElementById('sqlt-query').value,
+  };
+  const blob = new Blob([JSON.stringify(params, null, 2)], { type: 'application/json' });
+  const a    = document.createElement('a');
+  a.href     = URL.createObjectURL(blob);
+  a.download = `sql-over-vpn-test-params-${params.engine || 'sql'}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast('Parameters saved (password not included)', 'info');
+}
+
+function sqltParamsFileSelected() {
+  const input = document.getElementById('sqlt-params-file-input');
+  const file  = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    let params;
+    try {
+      params = JSON.parse(reader.result);
+    } catch (e) {
+      toast('Invalid parameters file: not valid JSON', 'error');
+      return;
+    }
+    if (params.engine != null && ['postgres', 'mysql', 'mssql'].includes(params.engine)) {
+      document.getElementById('sqlt-engine').value = params.engine;
+    }
+    if (params.database != null) document.getElementById('sqlt-database').value = params.database;
+    if (params.host     != null) document.getElementById('sqlt-host').value     = params.host;
+    if (params.port     != null) document.getElementById('sqlt-port').value     = params.port;
+    if (params.username != null) document.getElementById('sqlt-username').value = params.username;
+    if (params.query    != null) document.getElementById('sqlt-query').value    = params.query;
+    toast('Parameters loaded — enter the password separately', 'success');
+  };
+  reader.onerror = () => toast('Failed to read parameters file', 'error');
+  reader.readAsText(file);
+  input.value = '';
+}
+
 const SQLT_STATUS = {
   idle:                  { label: '— Idle',                  color: 'var(--muted)' },
   pulling_image:         { label: '⬇ Pulling image',         color: 'var(--accent)' },
