@@ -5,16 +5,22 @@ host (no Docker) so its behavior can be compared against the containerized
 "SQL over VPN Test" in the Script Manager UI (manager/src/routes/admin.ts).
 
 Prompts for an .ovpn config and MSSQL connection parameters, connects the
-tunnel, checks TCP reachability, then runs the query via bsqldb (FreeTDS) —
-the same client the containerized test uses, for an apples-to-apples result.
+tunnel, checks TCP reachability, then runs the query — via bsqldb (FreeTDS,
+the same client the containerized test uses) on Linux/macOS, or via sqlcmd
+on Windows since FreeTDS isn't native there.
 
-Requires root (openvpn needs to create a tun device) plus:
+Requires admin/root (openvpn needs to create a network adapter) plus:
     Debian/Ubuntu: sudo apt-get install -y openvpn freetds-bin
     macOS (Homebrew): brew install openvpn freetds
+    Windows: install the OpenVPN community client (openvpn.exe on PATH) and
+        the SQL Server command-line tools (winget install sqlcmd), then run
+        this script from an elevated ("Run as Administrator") shell —
+        Windows has no `sudo`, so don't prefix the command with one.
 """
 
 import getpass
 import os
+import platform
 import shutil
 import socket
 import subprocess
@@ -22,6 +28,8 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+
+IS_WINDOWS = platform.system() == 'Windows'
 
 VPN_HANDSHAKE_TIMEOUT = 30  # seconds to wait for "Initialization Sequence Completed"
 TCP_CHECK_TIMEOUT = 5
@@ -33,13 +41,31 @@ def fail(msg):
     sys.exit(1)
 
 
+def is_admin():
+    if IS_WINDOWS:
+        import ctypes
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+    return os.geteuid() == 0
+
+
 def check_prereqs():
-    if os.geteuid() != 0:
-        fail("Must run as root (openvpn needs to create a tun device). Re-run with sudo.")
-    if not shutil.which('openvpn'):
-        fail("openvpn not found on PATH. Install it (apt-get install -y openvpn / brew install openvpn).")
-    if not shutil.which('bsqldb'):
-        fail("bsqldb not found on PATH (part of FreeTDS). Install it (apt-get install -y freetds-bin / brew install freetds).")
+    if IS_WINDOWS:
+        if not is_admin():
+            fail("Must run from an elevated shell (right-click PowerShell/cmd → 'Run as Administrator') — "
+                 "openvpn needs to install a TAP/Wintun adapter. Windows has no `sudo`.")
+        if not shutil.which('openvpn'):
+            fail("openvpn.exe not found on PATH. Install the OpenVPN community client: "
+                 "https://openvpn.net/community-downloads/")
+        if not shutil.which('sqlcmd'):
+            fail("sqlcmd not found on PATH. Install it: winget install sqlcmd "
+                 "(or the 'Microsoft Command Line Utilities for SQL Server' package).")
+    else:
+        if not is_admin():
+            fail("Must run as root (openvpn needs to create a tun device). Re-run with sudo.")
+        if not shutil.which('openvpn'):
+            fail("openvpn not found on PATH. Install it (apt-get install -y openvpn / brew install openvpn).")
+        if not shutil.which('bsqldb'):
+            fail("bsqldb not found on PATH (part of FreeTDS). Install it (apt-get install -y freetds-bin / brew install freetds).")
 
 
 def prompt_ovpn_config():
@@ -144,8 +170,31 @@ def run_bsqldb_query(params, workdir):
     )
 
 
+# sqlcmd -C trusts the server's TLS certificate — the ODBC 18 driver it ships
+# with defaults to enforcing full certificate validation, which would
+# otherwise fail against a client's self-signed/internal-CA SQL Server; that
+# tradeoff is fine for a manual diagnostic run.
+def run_sqlcmd_query(params):
+    host, port, database, username, password, query = (
+        params['host'], params['port'], params['database'],
+        params['username'], params['password'], params['query'],
+    )
+    server = f"{host},{port}"
+    print(f"\nConnecting to MSSQL at {server}/{database} as '{username}' via sqlcmd...")
+    return subprocess.run(
+        ['sqlcmd', '-S', server, '-d', database, '-U', username, '-P', password,
+         '-Q', query, '-s', MSSQL_SEP, '-W', '-C'],
+        capture_output=True, text=True,
+    )
+
+
+def run_query(params, workdir):
+    return run_sqlcmd_query(params) if IS_WINDOWS else run_bsqldb_query(params, workdir)
+
+
 def print_result(proc, workdir):
-    print(f"\n--- bsqldb exit code: {proc.returncode} ---")
+    client = 'sqlcmd' if IS_WINDOWS else 'bsqldb'
+    print(f"\n--- {client} exit code: {proc.returncode} ---")
     if proc.stdout.strip():
         print("--- stdout (data) ---")
         print(proc.stdout)
@@ -153,7 +202,7 @@ def print_result(proc, workdir):
         print("--- stderr (metadata / errors) ---")
         print(proc.stderr)
 
-    if proc.returncode != 0:
+    if not IS_WINDOWS and proc.returncode != 0:
         tdsdump_path = workdir / 'tdsdump.log'
         if tdsdump_path.exists() and tdsdump_path.stat().st_size > 0:
             print("\n--- FreeTDS wire-level trace (tail) ---")
@@ -180,7 +229,7 @@ def main():
         vpn_proc = start_vpn(ovpn_text, workdir)
         try:
             check_tcp_reachable(params['host'], params['port'])
-            result = run_bsqldb_query(params, workdir)
+            result = run_query(params, workdir)
             print_result(result, workdir)
         finally:
             stop_vpn(vpn_proc)
