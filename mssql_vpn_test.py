@@ -114,13 +114,39 @@ def winget_install(package_id):
     return True
 
 
+# Python's ssl module validates certs through its own bundled OpenSSL, which
+# is stricter than Windows' native trust store about some legacy/corporate-
+# proxy CA certs (e.g. a Basic Constraints extension not marked critical) —
+# real-world case: urllib raised CERTIFICATE_VERIFY_FAILED on a Windows box
+# behind TLS-inspecting middleware whose root CA Windows itself trusts fine.
+# curl.exe (built into Windows 10 1803+/Server 2019+) uses WinHTTP/Schannel,
+# the same OS-native validation a browser would use, so it succeeds where
+# urllib doesn't — without weakening certificate verification to get there.
+def win_curl(args, **kwargs):
+    proc = subprocess.run(['curl.exe', '-sSL', *args], capture_output=True, timeout=kwargs.get('timeout', 120))
+    if proc.returncode != 0:
+        raise RuntimeError(f"curl.exe failed (exit {proc.returncode}): {proc.stderr.decode(errors='ignore').strip()}")
+    return proc
+
+
 def http_get(url, headers=None):
+    if IS_WINDOWS and shutil.which('curl.exe'):
+        args = []
+        for k, v in (headers or {}).items():
+            args += ['-H', f'{k}: {v}']
+        args.append(url)
+        return win_curl(args, timeout=30).stdout
+
     req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0', **(headers or {})})
     with urllib.request.urlopen(req, timeout=30) as resp:
         return resp.read()
 
 
 def download_to(url, dest_path):
+    if IS_WINDOWS and shutil.which('curl.exe'):
+        win_curl(['-o', str(dest_path), url], timeout=120)
+        return
+
     req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
     with urllib.request.urlopen(req, timeout=120) as resp, open(dest_path, 'wb') as f:
         shutil.copyfileobj(resp, f)
