@@ -80,6 +80,8 @@ router.post('/', requireRole('admin', 'agent'), async (req, res) => {
     return res.status(409).json({ error: `Script "${body.name}" already exists` });
   if (body.runMode === 'scheduled' && body.schedule && !cronService.isValidExpression(body.schedule))
     return res.status(400).json({ error: 'Invalid cron expression' });
+  if (body.vpnMssFix && !/^\d+$/.test(body.vpnMssFix))
+    return res.status(400).json({ error: 'vpnMssFix must be digits only (e.g. 1360)' });
 
   const validationError = validateScriptFields(body);
   if (validationError) return res.status(400).json({ error: validationError });
@@ -98,6 +100,7 @@ router.post('/', requireRole('admin', 'agent'), async (req, res) => {
     schedule:     body.schedule,
     timezone:     body.timezone,
     vpnEnabled:   body.vpnEnabled   || undefined,
+    vpnMssFix:    body.vpnMssFix    || undefined,
     createdAt:    new Date().toISOString(),
   };
 
@@ -128,6 +131,8 @@ router.put('/:name', requireRole('admin', 'agent'), async (req, res) => {
 
   if (body.runMode === 'scheduled' && body.schedule && !cronService.isValidExpression(body.schedule))
     return res.status(400).json({ error: 'Invalid cron expression' });
+  if (body.vpnMssFix && !/^\d+$/.test(body.vpnMssFix))
+    return res.status(400).json({ error: 'vpnMssFix must be digits only (e.g. 1360)' });
 
   const validationError = validateScriptFields(body);
   if (validationError) return res.status(400).json({ error: validationError });
@@ -150,6 +155,7 @@ router.put('/:name', requireRole('admin', 'agent'), async (req, res) => {
     schedule:     body.schedule      !== undefined ? (body.schedule      || undefined) : config.schedule,
     timezone:     body.timezone      !== undefined ? (body.timezone      || undefined) : config.timezone,
     vpnEnabled:   body.vpnEnabled    !== undefined ?  body.vpnEnabled                  : config.vpnEnabled,
+    vpnMssFix:    body.vpnMssFix     !== undefined ? (body.vpnMssFix     || undefined) : config.vpnMssFix,
   };
 
   const changes = auditService.diffConfigs(config, updated);

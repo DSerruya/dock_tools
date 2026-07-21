@@ -1306,7 +1306,7 @@ function closeAddModal() {
 }
 
 function resetForm() {
-  ['f-name','f-repo','f-entry','f-schedule','f-buildcmd','f-token'].forEach(id => {
+  ['f-name','f-repo','f-entry','f-schedule','f-buildcmd','f-token','f-vpn-mssfix'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = '';
   });
   document.getElementById('f-branch').value    = 'main';
@@ -1491,6 +1491,7 @@ function populateScriptForm(config) {
   }
   document.getElementById('f-schedule').value = config.schedule  || '';
   document.getElementById('f-timezone').value = config.timezone  || 'UTC';
+  document.getElementById('f-vpn-mssfix').value = config.vpnMssFix || '';
 
   document.getElementById('env-rows').innerHTML = '';
   cancelEnvPaste();
@@ -1619,21 +1620,24 @@ function collectScriptFormBody() {
   });
 
   const vpnEnabled = document.getElementById('f-vpn-enabled').checked;
+  const vpnMssFix  = document.getElementById('f-vpn-mssfix').value.trim();
   const body = { language: lang, repo, branch, entryPoint: entry, runMode, env, vpnEnabled };
   if (port)                   body.port         = parseInt(port);
   body.buildCommand = buildcmd;           // empty string clears it on edit
   if (token)                  body.repoToken    = token;
   body.schedule  = runMode === 'scheduled' ? sched : '';
   body.timezone  = tz;
-  return { body, entry, repo, runMode, sched };
+  body.vpnMssFix = vpnMssFix;             // empty string clears it on edit
+  return { body, entry, repo, runMode, sched, vpnMssFix };
 }
 
 async function submitAdd() {
   const name = document.getElementById('f-name').value.trim();
-  const { body, entry, repo, runMode, sched } = collectScriptFormBody();
+  const { body, entry, repo, runMode, sched, vpnMssFix } = collectScriptFormBody();
 
   if (!name || !repo || !entry) { toast('Name, repo URL, and entry point are required', 'error'); return; }
   if (runMode === 'scheduled' && !sched) { toast('Cron expression required for scheduled mode', 'error'); return; }
+  if (vpnMssFix && !/^\d+$/.test(vpnMssFix)) { toast('mssfix must be digits only (e.g. 1360)', 'error'); return; }
 
   try {
     await api('POST', '/api/scripts', { name, ...body });
@@ -1650,10 +1654,11 @@ async function submitAdd() {
 }
 
 async function submitEdit() {
-  const { body, entry, repo, runMode, sched } = collectScriptFormBody();
+  const { body, entry, repo, runMode, sched, vpnMssFix } = collectScriptFormBody();
 
   if (!repo || !entry) { toast('Repo URL and entry point are required', 'error'); return; }
   if (runMode === 'scheduled' && !sched) { toast('Cron expression required for scheduled mode', 'error'); return; }
+  if (vpnMssFix && !/^\d+$/.test(vpnMssFix)) { toast('mssfix must be digits only (e.g. 1360)', 'error'); return; }
 
   try {
     const result = await api('PUT', `/api/scripts/${encodeURIComponent(editingScriptName)}`, body);

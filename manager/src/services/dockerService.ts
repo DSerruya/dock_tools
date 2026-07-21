@@ -80,7 +80,14 @@ function resolveCmd(config: ScriptConfig): string[] {
 
 // ── VPN sidecar management ────────────────────────────────────────────────────
 
-async function startVpnSidecar(name: string): Promise<void> {
+// mssFix clamps TCP's negotiated segment size for traffic OpenVPN forwards
+// through this script's tunnel — a static fix for Path-MTU-Discovery
+// blackholes that doesn't depend on the kernel's PMTU cache (which never
+// populates if ICMP is dropped somewhere on the path). See
+// MTU-VPN-DEBUGGING-PLAYBOOK.md for how this value gets diagnosed.
+// Digits-only validated here too, not just at the route layer, since it's
+// interpolated into a shell command string below.
+async function startVpnSidecar(name: string, mssFix?: string): Promise<void> {
   const existing = docker.getContainer(vpnContainerName(name));
   try {
     const info = await existing.inspect();
@@ -90,10 +97,12 @@ async function startVpnSidecar(name: string): Promise<void> {
 
   await pullImage(VPN_IMAGE);
 
+  const mssFixFlag = mssFix && /^\d+$/.test(mssFix) ? ` --mssfix ${mssFix}` : '';
+
   const c = await docker.createContainer({
     name: vpnContainerName(name),
     Image: VPN_IMAGE,
-    Cmd: ['sh', '-c', 'apk add --no-cache openvpn 2>/dev/null; exec openvpn --config /vpn/config.ovpn'],
+    Cmd: ['sh', '-c', `apk add --no-cache openvpn 2>/dev/null; exec openvpn --config /vpn/config.ovpn${mssFixFlag}`],
     HostConfig: {
       Binds:   [`${hostVpnConfigPath(name)}:/vpn/config.ovpn:ro`],
       CapAdd:  ['NET_ADMIN'],
@@ -242,7 +251,7 @@ async function captureOnceLog(container: Dockerode.Container, runId: string): Pr
 
 export async function start(config: ScriptConfig, runId: string): Promise<void> {
   if (config.vpnEnabled) {
-    await startVpnSidecar(config.name);
+    await startVpnSidecar(config.name, config.vpnMssFix);
     await prependVpnLogs(config.name, runId);
   }
   await removeIfExists(config.name);
@@ -261,7 +270,7 @@ export async function stop(name: string, vpnEnabled?: boolean): Promise<void> {
 
 export async function restart(config: ScriptConfig, runId: string): Promise<void> {
   if (config.vpnEnabled) {
-    await startVpnSidecar(config.name);
+    await startVpnSidecar(config.name, config.vpnMssFix);
     await prependVpnLogs(config.name, runId);
   }
   await removeIfExists(config.name);
@@ -272,7 +281,7 @@ export async function restart(config: ScriptConfig, runId: string): Promise<void
 
 export async function runOnce(config: ScriptConfig, runId: string): Promise<{ exitCode: number }> {
   if (config.vpnEnabled) {
-    await startVpnSidecar(config.name);
+    await startVpnSidecar(config.name, config.vpnMssFix);
     await prependVpnLogs(config.name, runId);
   }
   await removeIfExists(config.name);

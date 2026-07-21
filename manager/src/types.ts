@@ -20,6 +20,8 @@ export interface ScriptConfig {
   lastSync?: string;
   lastRun?: string;
   vpnEnabled?: boolean;
+  vpnMssFix?: string;      // digits only, e.g. "1360" — OpenVPN --mssfix for this script's VPN sidecar,
+                           // works around Path-MTU-Discovery blackholes on the tunnel (see MTU-VPN-DEBUGGING-PLAYBOOK.md)
 }
 
 export interface ScriptStatus {

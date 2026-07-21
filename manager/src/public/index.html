@@ -981,6 +981,13 @@
           <div style="font-size:11px;color:var(--muted);margin-top:6px">
             All script traffic will be routed through the VPN. Port forwarding is not available in VPN mode.
           </div>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
+            <label style="margin-bottom:0;font-size:12px;white-space:nowrap">OpenVPN <code>--mssfix</code></label>
+            <input id="f-vpn-mssfix" type="text" placeholder="e.g. 1360" style="width:90px;padding:4px 8px;font-size:12px" />
+            <span style="font-size:11px;color:var(--muted)">
+              Only set this if queries over this VPN hang after connecting — usually a sign of a Path-MTU-Discovery blackhole on the tunnel, not a blocked port.
+            </span>
+          </div>
         </div>
       </div>
       <div class="form-group">
