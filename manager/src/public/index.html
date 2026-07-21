@@ -504,6 +504,30 @@
       <div id="ov-msg" style="margin-top:8px;font-size:12px;min-height:16px"></div>
     </div>
 
+    <!-- Full Environment Backup & Restore card -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:24px">
+      <div style="font-size:14px;font-weight:600;margin-bottom:4px">🗄 Backup &amp; Restore</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5">
+        Download a full, encrypted snapshot of this environment — every script, user, the audit
+        history, and any uploaded VPN test configs (including secrets, so restore needs no manual
+        re-entry). Restoring <strong>replaces everything wholesale</strong> — scripts/users/VPN
+        configs not in the backup are removed from this instance. This is separate from the
+        script-only Export/Import above.
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+        <button class="btn btn-ghost" onclick="downloadFullBackup()" title="Download an encrypted full-environment backup">⬇ Download Full Backup</button>
+        <button class="btn btn-ghost" onclick="openBackupRestoreModal()" title="Restore this environment from a backup file">⬆ Restore from Backup</button>
+      </div>
+      <div style="border-top:1px solid var(--border);padding-top:12px;margin-top:4px">
+        <div style="font-size:12px;font-weight:600;margin-bottom:4px">Encryption Key</div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px;line-height:1.5">
+          Backups (and repo tokens at rest) are encrypted with <code>WEBHOOK_SECRET</code>. Save a
+          copy somewhere safe — losing it makes existing backups and stored repo tokens unrecoverable.
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="downloadWebhookSecret()">⬇ Download WEBHOOK_SECRET</button>
+      </div>
+    </div>
+
     <div class="table-toolbar">
       <div>
         <h2 style="font-size:16px;font-weight:600">User Management</h2>
@@ -1034,6 +1058,58 @@
       <button class="btn btn-ghost" onclick="closeImportModal()">Cancel</button>
       <button class="btn btn-ghost btn-sm" id="import-back-btn" style="display:none" onclick="resetImportModal()">← Back</button>
       <button class="btn btn-primary" id="import-submit-btn" style="display:none" onclick="submitImport()">Import Selected</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Restore Backup Modal ── -->
+<div id="backup-restore-modal" class="overlay hidden">
+  <div class="modal" style="max-width:600px">
+    <div class="modal-header">
+      <span class="modal-title">Restore from Backup</span>
+      <button class="modal-close" onclick="closeBackupRestoreModal()">×</button>
+    </div>
+    <div class="modal-body">
+
+      <!-- Step 1: file picker -->
+      <div id="backup-restore-step-1">
+        <div class="file-drop-zone" id="backup-restore-drop-zone"
+             onclick="document.getElementById('backup-restore-file-input').click()"
+             ondragover="backupRestoreDragOver(event)"
+             ondragleave="backupRestoreDragLeave(event)"
+             ondrop="backupRestoreDrop(event)">
+          <div class="file-drop-icon">📂</div>
+          <div style="font-size:15px;font-weight:600">Drop your backup file here</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:6px">
+            or click to browse — accepts <code>*.dtbackup</code>
+          </div>
+          <input type="file" id="backup-restore-file-input" accept=".dtbackup" style="display:none"
+                 onchange="loadBackupFile(this.files[0])" />
+        </div>
+      </div>
+
+      <!-- Step 2: summary + confirm -->
+      <div id="backup-restore-step-2" style="display:none">
+        <div id="backup-restore-summary" style="font-size:13px;line-height:1.8;margin-bottom:16px"></div>
+        <div style="background:rgba(239,68,68,0.1);border:1px solid #ef4444;border-radius:6px;padding:12px;margin-bottom:16px">
+          <div style="font-size:12px;color:#ef4444;line-height:1.6">
+            <strong>This overwrites everything.</strong> Scripts, users, and VPN configs not in
+            this backup will be removed from this instance. If your own account isn't in the
+            backup, you will be logged out immediately after restoring.
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Type <code>RESTORE</code> to confirm</label>
+          <input id="backup-restore-confirm-input" type="text" placeholder="RESTORE"
+                 oninput="backupRestoreConfirmInputChanged()" />
+        </div>
+      </div>
+
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeBackupRestoreModal()">Cancel</button>
+      <button class="btn btn-ghost btn-sm" id="backup-restore-back-btn" style="display:none" onclick="resetBackupRestoreModal()">← Back</button>
+      <button class="btn btn-primary" id="backup-restore-submit-btn" style="display:none" disabled onclick="submitBackupRestore()">Restore Environment</button>
     </div>
   </div>
 </div>

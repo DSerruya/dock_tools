@@ -8,6 +8,7 @@ import auditRouter    from './routes/audit';
 import adminRouter    from './routes/admin';
 import exportRouter   from './routes/export';
 import importRouter   from './routes/import';
+import backupRouter   from './routes/backup';
 import { authenticate } from './middleware/auth';
 import * as configService from './services/configService';
 import * as cronService   from './services/cronService';
@@ -60,6 +61,8 @@ app.use('/api/scripts',  scriptsRouter);
 app.use('/api',          schedulesRouter);
 app.use('/api/logs',     logsRouter);
 app.use('/api/audit',    auditRouter);
+// Mounted before adminRouter so it doesn't fall through /api/admin's router first.
+app.use('/api/admin/backup', backupRouter);
 app.use('/api/admin',    adminRouter);
 app.use('/api/export',   exportRouter);
 app.use('/api/import',   importRouter);

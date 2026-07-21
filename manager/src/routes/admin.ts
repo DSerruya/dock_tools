@@ -272,6 +272,19 @@ router.post('/update', requireRole('admin'), (req, res) => {
 // Every admin route requires admin role
 router.use(requireRole('admin'));
 
+// GET /api/admin/webhook-secret — download the current WEBHOOK_SECRET so it can
+// be stored safely out-of-band. Losing it makes existing repoTokens-at-rest and
+// any encrypted environment backup unrecoverable.
+router.get('/webhook-secret', (req, res) => {
+  const secret = process.env.WEBHOOK_SECRET;
+  if (!secret) return res.status(400).json({ error: 'WEBHOOK_SECRET is not configured' });
+
+  auditService.record(getUser(req), 'admin.secret_downloaded', '-', []);
+  res.setHeader('Content-Type', 'text/plain');
+  res.setHeader('Content-Disposition', 'attachment; filename="webhook-secret.txt"');
+  res.send(secret);
+});
+
 // GET /api/admin/users
 router.get('/users', (_req, res) => {
   const users = userService.listUsers().map(u => ({

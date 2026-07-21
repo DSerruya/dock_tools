@@ -100,6 +100,10 @@ export function deleteUser(username: string, requestingUser: string): void {
   saveUsers(users.filter(u => u.username !== username));
 }
 
+export function replaceAll(users: User[]): void {
+  saveUsers(users);
+}
+
 // Called on startup: if no users exist, seed from env vars
 export async function initializeFromEnv(): Promise<void> {
   if (listUsers().length > 0) return;

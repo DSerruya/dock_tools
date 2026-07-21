@@ -170,13 +170,18 @@ function renderCard({ config, status, nextRun, vpnStatus }) {
     portMeta,
   ].filter(Boolean).join('');
 
+  const scheduleDetail = [
+    describeCron(config.schedule),
+    nextRun ? `Next: ${fmtDateTime(nextRun)}` : '',
+  ].filter(Boolean).join(' · ');
+
   const scheduleBlock = isScheduled ? `
     <div class="schedule-info">
       <div class="schedule-row">
         <span class="schedule-cron">${escHtml(config.schedule||'')}</span>
-        <span>${nextRun ? timeUntil(nextRun) : '—'}</span>
+        <span title="${nextRun ? fmtDateTime(nextRun) : ''}">${nextRun ? timeUntil(nextRun) : '—'}</span>
       </div>
-      ${describeCron(config.schedule) ? `<div style="color:var(--muted);font-size:11px;margin-top:3px">${describeCron(config.schedule)}</div>` : ''}
+      ${scheduleDetail ? `<div style="color:var(--muted);font-size:11px;margin-top:3px">${scheduleDetail}</div>` : ''}
     </div>` : '';
 
   const isPending    = pendingScripts.has(config.name);
@@ -292,6 +297,15 @@ async function triggerDownload(url, filename) {
 async function exportScripts() {
   const date = new Date().toISOString().slice(0, 10);
   await triggerDownload('/api/export', `scripts-export-${date}.json`);
+}
+
+async function downloadFullBackup() {
+  const date = new Date().toISOString().slice(0, 10);
+  await triggerDownload('/api/admin/backup', `dock-tools-backup-${date}.dtbackup`);
+}
+
+async function downloadWebhookSecret() {
+  await triggerDownload('/api/admin/webhook-secret', 'webhook-secret.txt');
 }
 
 async function downloadScript(name) {
@@ -469,6 +483,100 @@ async function submitImport() {
     closeImportModal();
     setTimeout(loadScripts, 2000);
   } catch (e) { toast(e.message, 'error'); }
+}
+
+/* ── Full Environment Backup / Restore ───────────────────────────────────── */
+let _backupRestoreFile = null;
+
+function openBackupRestoreModal() {
+  resetBackupRestoreModal();
+  document.getElementById('backup-restore-modal').classList.remove('hidden');
+}
+function closeBackupRestoreModal() {
+  document.getElementById('backup-restore-modal').classList.add('hidden');
+  _backupRestoreFile = null;
+}
+function resetBackupRestoreModal() {
+  _backupRestoreFile = null;
+  document.getElementById('backup-restore-step-1').style.display = '';
+  document.getElementById('backup-restore-step-2').style.display = 'none';
+  document.getElementById('backup-restore-submit-btn').style.display = 'none';
+  document.getElementById('backup-restore-back-btn').style.display   = 'none';
+  document.getElementById('backup-restore-confirm-input').value = '';
+  document.getElementById('backup-restore-summary').innerHTML = '';
+  document.getElementById('backup-restore-file-input').value = '';
+}
+
+function backupRestoreDragOver(e) {
+  e.preventDefault();
+  document.getElementById('backup-restore-drop-zone').classList.add('drag-over');
+}
+function backupRestoreDragLeave(e) {
+  document.getElementById('backup-restore-drop-zone').classList.remove('drag-over');
+}
+function backupRestoreDrop(e) {
+  e.preventDefault();
+  document.getElementById('backup-restore-drop-zone').classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file) loadBackupFile(file);
+}
+
+async function loadBackupFile(file) {
+  if (!file) return;
+  if (!file.name.endsWith('.dtbackup')) { toast('Please select a .dtbackup file', 'error'); return; }
+
+  try {
+    const fd = new FormData();
+    fd.append('backup', file);
+    const r    = await fetch('/api/admin/backup/inspect', { method: 'POST', body: fd });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+
+    _backupRestoreFile = file;
+
+    document.getElementById('backup-restore-summary').innerHTML = `
+      <div>Created: <strong>${fmtDateTime(data.createdAt)}</strong></div>
+      <div><strong>${data.scriptNames.length}</strong> script(s): ${escHtml(data.scriptNames.join(', ') || '—')}</div>
+      <div><strong>${data.usernames.length}</strong> user(s): ${escHtml(data.usernames.join(', ') || '—')}</div>
+      <div>${data.auditEntries} audit entries · Admin VPN config: ${data.hasAdminVpn ? 'yes' : 'no'} · SQL-test VPN config: ${data.hasSqlTestVpn ? 'yes' : 'no'}</div>`;
+
+    document.getElementById('backup-restore-step-1').style.display = 'none';
+    document.getElementById('backup-restore-step-2').style.display = '';
+    document.getElementById('backup-restore-submit-btn').style.display = '';
+    document.getElementById('backup-restore-back-btn').style.display   = '';
+    backupRestoreConfirmInputChanged();
+  } catch (e) {
+    toast('Failed to read backup: ' + e.message, 'error');
+  }
+}
+
+function backupRestoreConfirmInputChanged() {
+  const typed = document.getElementById('backup-restore-confirm-input').value;
+  document.getElementById('backup-restore-submit-btn').disabled = typed !== 'RESTORE';
+}
+
+async function submitBackupRestore() {
+  if (!_backupRestoreFile) return;
+  const btn = document.getElementById('backup-restore-submit-btn');
+  btn.disabled = true;
+  btn.textContent = 'Restoring…';
+
+  try {
+    const fd = new FormData();
+    fd.append('backup', _backupRestoreFile);
+    fd.append('confirm', 'RESTORE');
+    const r    = await fetch('/api/admin/backup/restore', { method: 'POST', body: fd });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+
+    toast(`Environment restored — ${data.scripts} script(s), ${data.users} user(s)`, 'success');
+    closeBackupRestoreModal();
+    setTimeout(() => location.reload(), 1500);
+  } catch (e) {
+    toast('Restore failed: ' + e.message, 'error');
+    btn.disabled = false;
+    btn.textContent = 'Restore Environment';
+  }
 }
 
 /* ── Admin tab — User Management ─────────────────────────────────────────── */
@@ -2506,6 +2614,7 @@ function setLoading(on) {
 /* ── Modal close on overlay click ─────────────────────────────────────────── */
 document.getElementById('add-modal').addEventListener('click',       e => { if (e.target===e.currentTarget) closeAddModal(); });
 document.getElementById('import-modal').addEventListener('click',    e => { if (e.target===e.currentTarget) closeImportModal(); });
+document.getElementById('backup-restore-modal').addEventListener('click', e => { if (e.target===e.currentTarget) closeBackupRestoreModal(); });
 document.getElementById('log-viewer-modal').addEventListener('click', e => { if (e.target===e.currentTarget) closeLogViewer(); });
 document.getElementById('add-user-modal').addEventListener('click',   e => { if (e.target===e.currentTarget) closeAddUserModal(); });
 document.getElementById('edit-user-modal').addEventListener('click',  e => { if (e.target===e.currentTarget) closeEditUserModal(); });

@@ -43,6 +43,15 @@ export function save(config: ScriptConfig): void {
   fs.writeFileSync(CONFIG_FILE, JSON.stringify(raw, null, 2));
 }
 
+export function replaceAll(configs: ScriptConfig[]): void {
+  const onDisk = configs.map(config => ({
+    ...config,
+    repoToken: config.repoToken ? encrypt(config.repoToken) : undefined,
+  }));
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.writeFileSync(CONFIG_FILE, JSON.stringify(onDisk, null, 2));
+}
+
 function loadAllRaw(): ScriptConfig[] {
   ensureFile();
   try { return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')) as ScriptConfig[]; }
