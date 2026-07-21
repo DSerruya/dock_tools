@@ -733,6 +733,24 @@
         <textarea id="sqlt-query" placeholder="SELECT ..." style="font-family:'Courier New',monospace;font-size:12px;min-height:70px;resize:vertical"></textarea>
       </div>
 
+      <div style="border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin-bottom:12px">
+        <div style="font-size:12px;font-weight:600;margin-bottom:6px">MTU / MSS troubleshooting</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.5">
+          If the query dies right after login (small packets fine, the real response never arrives), that's usually a
+          Path-MTU-Discovery blackhole on the tunnel, not a blocked port. Try one of these:
+        </div>
+        <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center">
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:400">
+            <input type="checkbox" id="sqlt-clamp-mss" style="width:auto" />
+            Clamp MSS to PMTU (iptables, this run only)
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:400">
+            OpenVPN <code>--mssfix</code>
+            <input id="sqlt-mssfix" type="text" placeholder="e.g. 1400" style="width:90px;padding:4px 8px;font-size:12px" />
+          </label>
+        </div>
+      </div>
+
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
         <button class="btn btn-primary btn-sm" id="sqlt-run-btn" onclick="sqltRun()">▶ Run Query</button>
         <button class="btn btn-ghost btn-sm" id="sqlt-stop-btn" style="display:none" onclick="sqltStop()">⏹ Stop</button>

@@ -2241,14 +2241,23 @@ async function sqltRun() {
   const username = document.getElementById('sqlt-username').value.trim();
   const password = document.getElementById('sqlt-password').value;
   const query    = document.getElementById('sqlt-query').value.trim();
+  const mssFix         = document.getElementById('sqlt-mssfix').value.trim();
+  const clampMssToPmtu = document.getElementById('sqlt-clamp-mss').checked;
 
   if (!host || !port || !database || !username || !query) {
     toast('Host, port, database, username and query are required', 'error');
     return;
   }
+  if (mssFix && !/^\d+$/.test(mssFix)) {
+    toast('mssfix must be digits only (e.g. 1400)', 'error');
+    return;
+  }
 
   try {
-    await api('POST', '/api/admin/sql-test/run', { engine, host, port, database, username, password, query });
+    await api('POST', '/api/admin/sql-test/run', {
+      engine, host, port, database, username, password, query,
+      mssFix: mssFix || undefined, clampMssToPmtu,
+    });
     document.getElementById('sqlt-result').innerHTML = '';
     document.getElementById('sqlt-table-wrap').style.display = 'none';
     document.getElementById('sqlt-table-wrap').innerHTML = '';

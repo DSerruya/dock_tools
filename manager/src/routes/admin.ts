@@ -1310,7 +1310,7 @@ const SQLT_VPN_HOST_CONFIG = path.join(
 const SQLT_IMAGE        = 'alpine:3.19';
 const SQLT_CONTAINER    = 'admin-sqltest';
 const SQLT_NETWORK      = process.env.DOCKER_NETWORK || 'bridge';
-const SQLT_PACKAGES     = 'openvpn postgresql-client mariadb-client freetds';
+const SQLT_PACKAGES     = 'openvpn postgresql-client mariadb-client freetds iputils iptables';
 const SQLT_SAMPLE_LIMIT = 50;
 const SQLT_MSSQL_SEP    = '\t';
 
@@ -1549,9 +1549,43 @@ async function checkTcpReachable(host: string, port: string): Promise<boolean> {
   return exitCode === 0;
 }
 
+// Path-MTU-Discovery probe — purely diagnostic, doesn't affect the actual DB
+// connection attempt below. A query that dies right after login (small
+// packets fine, the real response never arrives) usually means PMTUD is
+// blackholed somewhere on the tunnel's path: oversized packets get silently
+// dropped instead of triggering a resend at a smaller size. -M do sets the
+// IP don't-fragment bit so a failure here means "this size can't get
+// through", not "the client fragmented around the problem". Requires the
+// full iputils ping (busybox's built-in ping doesn't support -M), hence
+// 'iputils' in SQLT_PACKAGES.
+const MTU_PROBE_SIZES = [1472, 1400, 1372, 1300, 1200]; // ping payload bytes; add 28 (IP+ICMP headers) for the MTU
+
+async function probePathMtu(host: string): Promise<{ size: number; log: string }[]> {
+  const results: { size: number; log: string }[] = [];
+  for (const size of MTU_PROBE_SIZES) {
+    const { out, exitCode } = await dockerExecRun(SQLT_CONTAINER,
+      ['ping', '-M', 'do', '-c', '3', '-w', '5', '-s', String(size), host]);
+    const gotAnyIcmp = /bytes from/i.test(out);
+    const success     = exitCode === 0;
+    const mtu         = size + 28;
+    if (success) {
+      results.push({ size, log: `✓ ${size}-byte payload (MTU ${mtu}) got through cleanly.` });
+      break; // found a working size — smaller sizes would only confirm the same thing
+    }
+    results.push({
+      size,
+      log: `✗ ${size}-byte payload (MTU ${mtu}) failed` +
+        (gotAnyIcmp ? ' (got a reply, but with loss/errors — see raw output).' :
+          ' — no ICMP response at all (silent drop; PMTUD is likely blocked on this path, not just this size).'),
+    });
+  }
+  return results;
+}
+
 async function runSqlOverVpnTest(params: {
   engine: SqlEngine; host: string; port: string; database: string;
   username: string; password: string; query: string;
+  mssFix?: string; clampMssToPmtu?: boolean;
 }): Promise<void> {
   sqlTestState = { running: true, status: 'starting', log: '', aborted: false };
   try {
@@ -1563,11 +1597,17 @@ async function runSqlOverVpnTest(params: {
 
     sqlTestState.status = 'starting';
     sqlTestLog('Starting VPN + SQL client container...');
+    // --mssfix clamps TCP's negotiated segment size for traffic OpenVPN itself
+    // forwards through the tunnel — the "fix it at the source" option, testable
+    // here without touching the uploaded .ovpn profile. Value is validated as
+    // digits-only before being interpolated into the shell command below.
+    const mssFixFlag = params.mssFix && /^\d+$/.test(params.mssFix) ? ` --mssfix ${params.mssFix}` : '';
+    if (params.mssFix && !mssFixFlag) sqlTestLog(`⚠ Ignoring invalid mssFix value "${params.mssFix}" (must be digits only).`);
     const container = await docker.createContainer({
       name:  SQLT_CONTAINER,
       Image: SQLT_IMAGE,
       Tty:   true, // avoid stream demuxing when polling container.logs()
-      Cmd:   ['sh', '-c', `apk add --no-cache ${SQLT_PACKAGES} >/dev/null 2>&1; exec openvpn --config /vpn/config.ovpn`],
+      Cmd:   ['sh', '-c', `apk add --no-cache ${SQLT_PACKAGES} >/dev/null 2>&1; exec openvpn --config /vpn/config.ovpn${mssFixFlag}`],
       HostConfig: {
         Binds:   [`${SQLT_VPN_HOST_CONFIG}:/vpn/config.ovpn:ro`],
         CapAdd:  ['NET_ADMIN'],
@@ -1575,6 +1615,7 @@ async function runSqlOverVpnTest(params: {
       },
       NetworkingConfig: { EndpointsConfig: { [SQLT_NETWORK]: {} } },
     });
+    if (mssFixFlag) sqlTestLog(`OpenVPN started with${mssFixFlag} (client-side TCP MSS clamp).`);
     await container.start();
 
     sqlTestState.status = 'connecting_vpn';
@@ -1609,13 +1650,23 @@ async function runSqlOverVpnTest(params: {
       sqlTestLog(routes.out.trim());
     }
 
+    // tun0's MTU is almost always lower than eth0's (OpenVPN's own overhead) —
+    // logged here so a query that dies after login/handshake (small packets
+    // fine, real response never arrives) can be traced to a Path-MTU-Discovery
+    // blackhole instead of mistaken for a blocked port.
+    const links = await dockerExecRun(SQLT_CONTAINER, ['sh', '-c', 'ip link show 2>&1']).catch(() => null);
+    if (links && links.out.trim()) {
+      sqlTestLog('--- interface MTUs after VPN connect ---');
+      sqlTestLog(links.out.trim());
+    }
+
     // The package install kicked off alongside the VPN handshake above —
     // give it a little more room if it hasn't landed yet.
-    sqlTestLog('Waiting for SQL client tools to finish installing (psql, mysql, bsqldb, nc)...');
+    sqlTestLog('Waiting for SQL client tools to finish installing (psql, mysql, bsqldb, nc, ping, iptables)...');
     let toolsReady = false;
     for (let i = 0; i < 20; i++) {
       if (sqlTestState.aborted) break;
-      const check = await dockerExecRun(SQLT_CONTAINER, ['sh', '-c', 'which psql mysql bsqldb nc >/dev/null 2>&1 && echo ready']);
+      const check = await dockerExecRun(SQLT_CONTAINER, ['sh', '-c', 'which psql mysql bsqldb nc ping iptables >/dev/null 2>&1 && echo ready']);
       if (check.out.includes('ready')) { toolsReady = true; break; }
       await new Promise(r => setTimeout(r, 1000));
     }
@@ -1630,6 +1681,18 @@ async function runSqlOverVpnTest(params: {
       ? '✓ SQL client tools ready.'
       : '⚠ SQL client tools not confirmed ready after 20s — continuing anyway, the run below may fail if a binary is missing.');
 
+    if (params.clampMssToPmtu) {
+      // Clamps MSS on the SQL client's own outbound TCP SYNs to whatever the
+      // kernel's own path-MTU cache reports — a fast way to confirm the MTU
+      // theory without touching the uploaded .ovpn profile at all. Only
+      // affects this container's own connections, and only for this run.
+      const clamp = await dockerExecRun(SQLT_CONTAINER,
+        ['iptables', '-t', 'mangle', '-A', 'OUTPUT', '-p', 'tcp', '--tcp-flags', 'SYN,RST', 'SYN', '-j', 'TCPMSS', '--clamp-mss-to-pmtu']);
+      sqlTestLog(clamp.exitCode === 0
+        ? '✓ Applied iptables TCPMSS --clamp-mss-to-pmtu to outbound TCP.'
+        : `✗ Failed to apply MSS clamp (exit ${clamp.exitCode}): ${clamp.out.trim()}`);
+    }
+
     const { engine, host, port, database, username, password, query } = params;
 
     sqlTestState.status = 'checking_reachability';
@@ -1638,6 +1701,19 @@ async function runSqlOverVpnTest(params: {
     sqlTestLog(reachable
       ? `✓ ${host}:${port} is reachable through the tunnel.`
       : `✗ Could not reach ${host}:${port} within 5s — likely a VPN route or firewall issue for this host/port. Continuing to attempt the DB connection anyway.`);
+
+    if (sqlTestState.aborted) {
+      sqlTestState.status = 'failed';
+      sqlTestState.error  = 'Test aborted';
+      return;
+    }
+
+    sqlTestLog(`Testing path MTU to ${host} (ping -M do, stepping ${MTU_PROBE_SIZES.join(' → ')} byte payloads, diagnostic only)...`);
+    const mtuProbeResults = await probePathMtu(host).catch(() => []);
+    mtuProbeResults.forEach(r => sqlTestLog(r.log));
+    if (!mtuProbeResults.some(r => r.log.startsWith('✓'))) {
+      sqlTestLog(`⚠ No payload size down to ${MTU_PROBE_SIZES[MTU_PROBE_SIZES.length - 1]} bytes got through — the real path MTU may be even smaller, or ICMP is fully blocked on this route either way, this points at a Path-MTU-Discovery blackhole rather than a blocked port; try the MSS-clamp options below.`);
+    }
 
     if (sqlTestState.aborted) {
       sqlTestState.status = 'failed';
@@ -1778,16 +1854,20 @@ router.post('/sql-test/run', (req, res) => {
   if (sqlTestState.running) return res.status(409).json({ error: 'Test already running' });
   if (!fs.existsSync(SQLT_VPN_CONFIG)) return res.status(400).json({ error: 'Upload a .ovpn config first' });
 
-  const { engine, host, port, database, username, password, query } = req.body || {};
+  const { engine, host, port, database, username, password, query, mssFix, clampMssToPmtu } = req.body || {};
   if (!['postgres', 'mysql', 'mssql'].includes(engine))
     return res.status(400).json({ error: 'Invalid engine' });
   if (!host || !port || !database || !username || !query)
     return res.status(400).json({ error: 'Host, port, database, username and query are required' });
+  if (mssFix && !/^\d+$/.test(String(mssFix)))
+    return res.status(400).json({ error: 'mssFix must be digits only (e.g. 1400)' });
 
   res.json({ message: 'Test started' });
   setImmediate(() => runSqlOverVpnTest({
     engine, host, port: String(port), database, username,
     password: password || '', query,
+    mssFix: mssFix ? String(mssFix) : undefined,
+    clampMssToPmtu: Boolean(clampMssToPmtu),
   }));
 });
 
