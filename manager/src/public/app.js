@@ -2317,6 +2317,8 @@ function sqltSaveParams() {
     port:     document.getElementById('sqlt-port').value.trim(),
     username: document.getElementById('sqlt-username').value.trim(),
     query:    document.getElementById('sqlt-query').value,
+    mssFix:         document.getElementById('sqlt-mssfix').value.trim(),
+    clampMssToPmtu: document.getElementById('sqlt-clamp-mss').checked,
   };
   const blob = new Blob([JSON.stringify(params, null, 2)], { type: 'application/json' });
   const a    = document.createElement('a');
@@ -2348,6 +2350,8 @@ function sqltParamsFileSelected() {
     if (params.port     != null) document.getElementById('sqlt-port').value     = params.port;
     if (params.username != null) document.getElementById('sqlt-username').value = params.username;
     if (params.query    != null) document.getElementById('sqlt-query').value    = params.query;
+    if (params.mssFix   != null) document.getElementById('sqlt-mssfix').value   = params.mssFix;
+    if (params.clampMssToPmtu != null) document.getElementById('sqlt-clamp-mss').checked = Boolean(params.clampMssToPmtu);
     toast('Parameters loaded — enter the password separately', 'success');
   };
   reader.onerror = () => toast('Failed to read parameters file', 'error');
