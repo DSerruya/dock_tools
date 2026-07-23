@@ -840,7 +840,7 @@
           <button class="btn btn-ghost btn-sm logs-period"        data-period="all"  onclick="setLogsPeriod(this)">All</button>
           <button class="btn btn-ghost btn-sm logs-period"        data-period="custom" onclick="setLogsPeriod(this)">Custom…</button>
         </div>
-        <div id="logs-custom-range" style="display:none;gap:6px;align-items:center;flex-wrap:wrap">
+        <div id="logs-custom-range" style="gap:6px;align-items:center;flex-wrap:wrap">
           <input id="logs-from" type="datetime-local" onchange="loadLogs()"
                  style="background:var(--bg);border:1px solid var(--border);color:var(--text);
                         border-radius:6px;padding:3px 6px;font-size:12px" />
@@ -886,26 +886,50 @@
           </select>
         </div>
       </div>
-      <div class="form-group">
-        <label>GitHub Repo URL *</label>
-        <input id="f-repo" type="text" placeholder="https://github.com/you/my-script" />
+      <div class="form-group" id="source-type-row">
+        <label>Source</label>
+        <div class="run-mode-toggle">
+          <input type="radio" name="source-type" id="st-git" value="git" checked onchange="onSourceTypeChange()" />
+          <label for="st-git">🌐 Git Repository</label>
+          <input type="radio" name="source-type" id="st-upload" value="upload" onchange="onSourceTypeChange()" />
+          <label for="st-upload">📦 Upload Archive</label>
+        </div>
       </div>
-      <div class="form-row">
+      <div id="git-source-fields">
+        <div class="form-group">
+          <label>GitHub Repo URL *</label>
+          <input id="f-repo" type="text" placeholder="https://github.com/you/my-script" />
+        </div>
         <div class="form-group">
           <label>Branch</label>
           <input id="f-branch" type="text" value="main" />
         </div>
         <div class="form-group">
-          <label id="entry-point-label">Entry Point *</label>
-          <input id="f-entry" type="text" placeholder="main.py" />
+          <label>GitHub Token <span style="font-size:10px;color:var(--muted);text-transform:none;letter-spacing:0">(optional — required for private repos)</span></label>
+          <input id="f-token" type="password" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" autocomplete="off" />
+          <div style="font-size:11px;color:var(--muted);margin-top:4px">
+            Create a token at GitHub → Settings → Developer settings → Personal access tokens (scope: <code>repo</code>). Stored securely, never shown in logs.
+          </div>
+        </div>
+      </div>
+      <div id="upload-archive-group" style="display:none">
+        <div class="form-group">
+          <label id="archive-field-label">Archive (.tar.gz / .tgz) *</label>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <span id="archive-file-status" style="font-size:12px;color:var(--muted)">No archive selected</span>
+            <label class="btn btn-ghost btn-sm" style="cursor:pointer;margin:0">
+              Choose File
+              <input type="file" id="archive-file-input" accept=".tar.gz,.tgz" style="display:none" onchange="onArchiveFileSelected()" />
+            </label>
+          </div>
+          <div style="font-size:11px;color:var(--muted);margin-top:4px">
+            Standalone — not connected to git. This script's code only ever changes when you upload a new archive here; it is never cloned, pulled, or synced from a remote. Accepts the <code>.tar.gz</code> produced by another script's ⬇ Download button.
+          </div>
         </div>
       </div>
       <div class="form-group">
-        <label>GitHub Token <span style="font-size:10px;color:var(--muted);text-transform:none;letter-spacing:0">(optional — required for private repos)</span></label>
-        <input id="f-token" type="password" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" autocomplete="off" />
-        <div style="font-size:11px;color:var(--muted);margin-top:4px">
-          Create a token at GitHub → Settings → Developer settings → Personal access tokens (scope: <code>repo</code>). Stored securely, never shown in logs.
-        </div>
+        <label id="entry-point-label">Entry Point *</label>
+        <input id="f-entry" type="text" placeholder="main.py" />
       </div>
       <div class="form-group">
         <label>Build Command <span style="font-size:10px;color:var(--muted);text-transform:none;letter-spacing:0">(optional)</span></label>

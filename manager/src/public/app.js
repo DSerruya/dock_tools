@@ -9,6 +9,8 @@ let scriptModalMode    = 'add';  // 'add' | 'edit'
 let editingScriptName  = null;   // name of script being edited
 let _pendingVpnFile    = null;   // File object staged for upload on add-mode submit
 let _vpnConfigured     = false;  // whether current edit target has an .ovpn on server
+let _pendingArchiveFile     = null;  // File object staged for upload on add-mode submit (upload-based scripts)
+let editingScriptSourceType = 'git'; // sourceType of the script currently being edited — immutable after creation
 let currentLogViewer   = { runId: null, scriptName: null }; // run shown in the log viewer modal
 
 /* ── Cron helpers ────────────────────────────────────────────────────────── */
@@ -151,8 +153,10 @@ function renderScripts(scripts) {
 
 function renderCard({ config, status, nextRun, vpnStatus }) {
   const isScheduled  = config.runMode === 'scheduled';
+  const isUpload     = config.sourceType === 'upload';
   const dotClass     = isScheduled && status !== 'error' ? 'status-scheduled' : `status-${status}`;
-  const statusText   = isScheduled ? (status === 'running' ? 'running' : 'scheduled') : status.replace('_',' ');
+  const statusText   = isScheduled ? (status === 'running' ? 'running' : 'scheduled')
+    : (status === 'not_cloned' && isUpload ? 'awaiting upload' : status.replace('_',' '));
   const webhookUrl   = `${location.origin}/webhook/${config.name}`;
 
   const portMeta = config.port
@@ -160,12 +164,16 @@ function renderCard({ config, status, nextRun, vpnStatus }) {
     : '';
 
   const meta = [
-    `<span>📁 ${escHtml(config.repo.replace('https://github.com/',''))}</span>`,
+    isUpload
+      ? `<span>📦 Uploaded archive</span>`
+      : `<span>📁 ${escHtml((config.repo || '').replace('https://github.com/',''))}</span>`,
     config.buildCommand
       ? `<span>🔨 Build: <code>${escHtml(config.buildCommand)}</code></span>`
       : '',
-    `<span>🌿 ${escHtml(config.branch)} · 🚀 ${escHtml(config.entryPoint)}</span>`,
-    config.lastSync ? `<span>🔄 Synced ${relativeTime(config.lastSync)}</span>` : '',
+    isUpload
+      ? `<span>🚀 ${escHtml(config.entryPoint)}</span>`
+      : `<span>🌿 ${escHtml(config.branch)} · 🚀 ${escHtml(config.entryPoint)}</span>`,
+    config.lastSync ? `<span>🔄 ${isUpload ? 'Uploaded' : 'Synced'} ${relativeTime(config.lastSync)}</span>` : '',
     config.lastRun  ? `<span>⏱ Last run ${relativeTime(config.lastRun)}</span>`  : '',
     portMeta,
   ].filter(Boolean).join('');
@@ -220,16 +228,17 @@ function renderCard({ config, status, nextRun, vpnStatus }) {
       </div>
       <div class="card-meta">${meta}</div>
       ${scheduleBlock}
+      ${isUpload ? '' : `
       <div class="webhook-row">
         <span class="webhook-url" title="${escHtml(webhookUrl)}">${escHtml(webhookUrl)}</span>
         <button class="copy-btn" onclick="copyText('${escHtml(webhookUrl)}')" title="Copy">📋</button>
-      </div>
+      </div>`}
       <div class="card-actions">
         ${writeActions}
         ${editBtn}
         <button class="btn btn-ghost btn-sm" onclick="showTab('logs');filterLogs('${config.name}')">📋 Logs</button>
         <button class="btn btn-ghost btn-sm" onclick="showLiveLogs('${escHtml(config.name)}')" title="Stream live docker logs for this container">📡 Live Logs</button>
-        <button class="btn btn-ghost btn-sm" onclick="downloadScript('${escHtml(config.name)}')" title="Download cloned repo as .tar.gz">⬇</button>
+        <button class="btn btn-ghost btn-sm" onclick="downloadScript('${escHtml(config.name)}')" title="Download script files as .tar.gz">⬇</button>
         ${deleteBtn}
       </div>
     </div>`;
@@ -980,16 +989,18 @@ function filterLogs(scriptName) {
 let _logsPeriod = '1h';   // default
 
 function setLogsPeriod(btn) {
+  const previousPeriod = _logsPeriod;
   document.querySelectorAll('.logs-period').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   _logsPeriod = btn.dataset.period;
   const custom = document.getElementById('logs-custom-range');
   if (_logsPeriod === 'custom') {
     custom.classList.add('visible');
-    // Pre-fill custom inputs with current computed range
-    const { since, until } = _logsDateRange();
+    // Pre-fill custom inputs with whichever range was showing before switching to custom
+    const { since, until } = _logsDateRange(previousPeriod === 'custom' ? '1h' : previousPeriod);
     if (since) document.getElementById('logs-from').value  = _toLocalInput(new Date(since));
     if (until) document.getElementById('logs-until').value = _toLocalInput(new Date(until));
+    loadLogs();
   } else {
     custom.classList.remove('visible');
     loadLogs();
@@ -1002,9 +1013,9 @@ function _toLocalInput(d) {
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-function _logsDateRange() {
-  if (_logsPeriod === 'all') return {};
-  if (_logsPeriod === 'custom') {
+function _logsDateRange(period = _logsPeriod) {
+  if (period === 'all') return {};
+  if (period === 'custom') {
     const from  = document.getElementById('logs-from').value;
     const until = document.getElementById('logs-until').value;
     return {
@@ -1014,7 +1025,7 @@ function _logsDateRange() {
   }
   const now  = new Date();
   const msMap = { '1h': 3600000, '6h': 21600000, '12h': 43200000, '24h': 86400000, '7d': 604800000, '30d': 2592000000 };
-  const ms    = msMap[_logsPeriod] || 86400000;
+  const ms    = msMap[period] || 86400000;
   return { since: new Date(now - ms).toISOString(), until: now.toISOString() };
 }
 
@@ -1293,8 +1304,17 @@ function openEditModal(config) {
   document.getElementById('script-modal-submit').textContent = 'Save Changes';
   document.getElementById('f-name').disabled   = true;
   document.getElementById('f-name-hint').style.display = '';
-  document.getElementById('update-check-area').style.display = 'flex';
   document.getElementById('env-download-btn').style.display = '';
+
+  // Source (git vs upload) is set at creation and can't change — hide the toggle and show
+  // only the fields relevant to whichever source this script actually has.
+  const isUpload = editingScriptSourceType === 'upload';
+  document.getElementById('source-type-row').style.display      = 'none';
+  document.getElementById('git-source-fields').style.display     = isUpload ? 'none' : '';
+  document.getElementById('upload-archive-group').style.display  = isUpload ? '' : 'none';
+  document.getElementById('archive-field-label').textContent     = 'Replace with a new archive';
+  document.getElementById('update-check-area').style.display     = isUpload ? 'none' : 'flex';
+
   document.getElementById('add-modal').classList.remove('hidden');
 }
 
@@ -1323,6 +1343,15 @@ function resetForm() {
   resetUpdateCheck();
   _pendingVpnFile = null;
   _setVpnUi(false, false, null);
+
+  document.getElementById('source-type-row').style.display = '';
+  document.getElementById('st-git').checked = true;
+  editingScriptSourceType = 'git';
+  _pendingArchiveFile = null;
+  document.getElementById('archive-field-label').textContent = 'Archive (.tar.gz / .tgz) *';
+  document.getElementById('archive-file-status').textContent = 'No archive selected';
+  document.getElementById('archive-file-status').style.color = 'var(--muted)';
+  onSourceTypeChange();
 }
 
 function resetUpdateCheck() {
@@ -1336,6 +1365,54 @@ function resetUpdateCheck() {
   const checkBtn = document.getElementById('check-update-btn');
   checkBtn.disabled    = false;
   checkBtn.textContent = 'Check for Updates';
+}
+
+/* ── Source type (git vs upload archive) ─────────────────────────────────── */
+function onSourceTypeChange() {
+  const isUpload = document.getElementById('st-upload').checked;
+  document.getElementById('git-source-fields').style.display    = isUpload ? 'none' : '';
+  document.getElementById('upload-archive-group').style.display = isUpload ? '' : 'none';
+}
+
+function onArchiveFileSelected() {
+  const input = document.getElementById('archive-file-input');
+  const file  = input.files[0];
+  if (!file) return;
+  if (!/\.(tar\.gz|tgz)$/i.test(file.name)) {
+    toast('Only .tar.gz or .tgz archives are accepted', 'error');
+    input.value = '';
+    return;
+  }
+
+  const statusEl = document.getElementById('archive-file-status');
+
+  if (scriptModalMode === 'edit' && editingScriptName) {
+    // In edit mode: upload immediately — this replaces the script's code right away.
+    statusEl.textContent = `Uploading ${file.name}…`;
+    statusEl.style.color = 'var(--muted)';
+    const fd = new FormData();
+    fd.append('archive', file);
+    fetch(`/api/scripts/${encodeURIComponent(editingScriptName)}/upload-archive`, {
+      method: 'POST', body: fd,
+    }).then(r => r.ok ? r.json() : r.json().then(e => Promise.reject(new Error(e.error || 'Upload failed'))))
+      .then(result => {
+        statusEl.textContent = file.name;
+        statusEl.style.color = 'var(--green)';
+        toast(result.message || 'Archive uploaded', 'success');
+        setTimeout(loadScripts, 1500);
+      })
+      .catch(e => {
+        statusEl.textContent = 'No archive selected';
+        statusEl.style.color = 'var(--muted)';
+        toast(e.message, 'error');
+      });
+  } else {
+    // In add mode: stage locally, upload right after the script is created
+    _pendingArchiveFile = file;
+    statusEl.textContent = file.name;
+    statusEl.style.color = 'var(--green)';
+  }
+  input.value = '';
 }
 
 /* ── OpenVPN helpers ─────────────────────────────────────────────────────── */
@@ -1472,10 +1549,13 @@ async function applyScriptUpdate() {
 }
 
 function populateScriptForm(config) {
+  editingScriptSourceType = config.sourceType || 'git';
+  document.getElementById(editingScriptSourceType === 'upload' ? 'st-upload' : 'st-git').checked = true;
+
   document.getElementById('f-name').value     = config.name;
   document.getElementById('f-lang').value     = config.language;
-  document.getElementById('f-repo').value     = config.repo;
-  document.getElementById('f-branch').value   = config.branch;
+  document.getElementById('f-repo').value     = config.repo   || '';
+  document.getElementById('f-branch').value   = config.branch || '';
   document.getElementById('f-entry').value    = config.entryPoint;
   document.getElementById('f-buildcmd').value = config.buildCommand || '';
   document.getElementById('f-port').value     = config.port || '';
@@ -1602,6 +1682,9 @@ function updateCronPreview() {
 
 function collectScriptFormBody() {
   const lang     = document.getElementById('f-lang').value;
+  const sourceType = scriptModalMode === 'edit'
+    ? editingScriptSourceType
+    : (document.querySelector('input[name="source-type"]:checked').value);
   const repo     = document.getElementById('f-repo').value.trim();
   const branch   = document.getElementById('f-branch').value.trim() || 'main';
   const entry    = document.getElementById('f-entry').value.trim();
@@ -1621,21 +1704,27 @@ function collectScriptFormBody() {
 
   const vpnEnabled = document.getElementById('f-vpn-enabled').checked;
   const vpnMssFix  = document.getElementById('f-vpn-mssfix').value.trim();
-  const body = { language: lang, repo, branch, entryPoint: entry, runMode, env, vpnEnabled };
+  const body = { language: lang, sourceType, entryPoint: entry, runMode, env, vpnEnabled };
+  if (sourceType === 'git') {
+    body.repo   = repo;
+    body.branch = branch;
+    if (token) body.repoToken = token;
+  }
   if (port)                   body.port         = parseInt(port);
   body.buildCommand = buildcmd;           // empty string clears it on edit
-  if (token)                  body.repoToken    = token;
   body.schedule  = runMode === 'scheduled' ? sched : '';
   body.timezone  = tz;
   body.vpnMssFix = vpnMssFix;             // empty string clears it on edit
-  return { body, entry, repo, runMode, sched, vpnMssFix };
+  return { body, entry, repo, sourceType, runMode, sched, vpnMssFix };
 }
 
 async function submitAdd() {
   const name = document.getElementById('f-name').value.trim();
-  const { body, entry, repo, runMode, sched, vpnMssFix } = collectScriptFormBody();
+  const { body, entry, repo, sourceType, runMode, sched, vpnMssFix } = collectScriptFormBody();
 
-  if (!name || !repo || !entry) { toast('Name, repo URL, and entry point are required', 'error'); return; }
+  if (!name || !entry) { toast('Name and entry point are required', 'error'); return; }
+  if (sourceType === 'git' && !repo) { toast('Repo URL is required', 'error'); return; }
+  if (sourceType === 'upload' && !_pendingArchiveFile) { toast('Choose a .tar.gz/.tgz archive to upload', 'error'); return; }
   if (runMode === 'scheduled' && !sched) { toast('Cron expression required for scheduled mode', 'error'); return; }
   if (vpnMssFix && !/^\d+$/.test(vpnMssFix)) { toast('mssfix must be digits only (e.g. 1360)', 'error'); return; }
 
@@ -1647,16 +1736,30 @@ async function submitAdd() {
       await fetch(`/api/scripts/${encodeURIComponent(name)}/vpn`, { method: 'POST', body: fd });
       _pendingVpnFile = null;
     }
-    toast(`"${name}" added — cloning in background…`, 'success');
+    if (sourceType === 'upload' && _pendingArchiveFile) {
+      const fd = new FormData();
+      fd.append('archive', _pendingArchiveFile);
+      const r = await fetch(`/api/scripts/${encodeURIComponent(name)}/upload-archive`, { method: 'POST', body: fd });
+      _pendingArchiveFile = null;
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}));
+        toast(`"${name}" created, but archive upload failed: ${e.error || r.statusText}`, 'error');
+        closeAddModal();
+        setTimeout(loadScripts, 1000);
+        return;
+      }
+    }
+    toast(`"${name}" added${sourceType === 'git' ? ' — cloning in background…' : ''}`, 'success');
     closeAddModal();
     setTimeout(loadScripts, 2000);
   } catch (e) { toast(e.message, 'error'); }
 }
 
 async function submitEdit() {
-  const { body, entry, repo, runMode, sched, vpnMssFix } = collectScriptFormBody();
+  const { body, entry, repo, sourceType, runMode, sched, vpnMssFix } = collectScriptFormBody();
 
-  if (!repo || !entry) { toast('Repo URL and entry point are required', 'error'); return; }
+  if (!entry) { toast('Entry point is required', 'error'); return; }
+  if (sourceType === 'git' && !repo) { toast('Repo URL is required', 'error'); return; }
   if (runMode === 'scheduled' && !sched) { toast('Cron expression required for scheduled mode', 'error'); return; }
   if (vpnMssFix && !/^\d+$/.test(vpnMssFix)) { toast('mssfix must be digits only (e.g. 1360)', 'error'); return; }
 

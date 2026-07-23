@@ -1,12 +1,17 @@
 export type RunMode = 'persistent' | 'scheduled';
 export type Language = 'python' | 'ruby' | 'node' | 'typescript';
 export type ContainerStatus = 'running' | 'stopped' | 'error' | 'not_cloned';
+// 'git' (default, backward-compatible with configs predating this field) pulls code via
+// gitService. 'upload' gets its code from a one-time or replaced .tar.gz archive and never
+// touches git — no clone/pull/webhook-sync, even if the archive happens to contain a .git dir.
+export type SourceType = 'git' | 'upload';
 
 export interface ScriptConfig {
   name: string;
   language: Language;
-  repo: string;
-  branch: string;
+  sourceType?: SourceType;
+  repo?: string;
+  branch?: string;
   entryPoint: string;
   port?: number;
   env?: Record<string, string>;

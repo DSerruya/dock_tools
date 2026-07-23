@@ -22,6 +22,10 @@ router.post('/:name', (req: Request, res: Response) => {
   const config = configService.get(name);
   if (!config) return res.status(404).json({ error: 'Script not found' });
 
+  if ((config.sourceType ?? 'git') === 'upload') {
+    return res.status(400).json({ error: 'This is an upload-based script — it has no git remote for webhooks to sync from' });
+  }
+
   const secret = process.env.WEBHOOK_SECRET || '';
   if (!secret) {
     return res.status(503).json({ error: 'Webhook endpoint is disabled: WEBHOOK_SECRET is not configured' });

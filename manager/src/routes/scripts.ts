@@ -6,6 +6,7 @@ import multer from 'multer';
 import * as configService from '../services/configService';
 import * as dockerService from '../services/dockerService';
 import * as gitService    from '../services/gitService';
+import * as archiveService from '../services/archiveService';
 import * as cronService   from '../services/cronService';
 import * as logService    from '../services/logService';
 import * as auditService  from '../services/auditService';
@@ -23,6 +24,7 @@ const router  = Router();
 const DATA_DIR = process.env.DATA_DIR || '/app/scripts-data';
 const VPN_DIR  = path.join(DATA_DIR, 'vpn');
 const vpnUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 512 * 1024 } });
+const archiveUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 250 * 1024 * 1024 } });
 
 // Strip the repoToken from configs sent over the wire.
 // When a token IS configured, return '***' so the UI can show "(token configured)"
@@ -59,7 +61,7 @@ function validateScriptFields(body: Partial<ScriptConfig>): string | null {
 router.get('/', async (_req, res) => {
   const configs = configService.loadAll();
   const results = await Promise.all(configs.map(async config => {
-    const cloned    = gitService.isCloned(config.name);
+    const cloned    = gitService.isReady(config);
     const status    = cloned ? await dockerService.getStatus(config.name) : 'not_cloned';
     const nextRun   = config.runMode === 'scheduled' ? cronService.getNextRun(config.name) : null;
     const vpnStatus = config.vpnEnabled ? await dockerService.getVpnStatus(config.name) : 'off';
@@ -71,9 +73,12 @@ router.get('/', async (_req, res) => {
 router.post('/', requireRole('admin', 'agent'), async (req, res) => {
   const body = req.body as Partial<ScriptConfig>;
   const user = getUser(req);
+  const sourceType = body.sourceType === 'upload' ? 'upload' : 'git';
 
-  if (!body.name || !body.language || !body.repo || !body.entryPoint)
-    return res.status(400).json({ error: 'name, language, repo, and entryPoint are required' });
+  if (!body.name || !body.language || !body.entryPoint)
+    return res.status(400).json({ error: 'name, language, and entryPoint are required' });
+  if (sourceType === 'git' && !body.repo)
+    return res.status(400).json({ error: 'repo is required for git-based scripts' });
   if (!/^[a-z0-9-]+$/.test(body.name))
     return res.status(400).json({ error: 'name must be lowercase letters, numbers, and hyphens only' });
   if (configService.get(body.name))
@@ -89,14 +94,15 @@ router.post('/', requireRole('admin', 'agent'), async (req, res) => {
   const config: ScriptConfig = {
     name:         body.name,
     language:     body.language,
-    repo:         body.repo,
+    sourceType,
+    repo:         sourceType === 'git' ? body.repo : undefined,
     entryPoint:   body.entryPoint,
-    branch:       body.branch       || 'main',
+    branch:       sourceType === 'git' ? (body.branch || 'main') : undefined,
     runMode:      body.runMode      || 'persistent',
     port:         body.port,
     env:          body.env,
     buildCommand: body.buildCommand || undefined,
-    repoToken:    body.repoToken    || undefined,
+    repoToken:    sourceType === 'git' ? (body.repoToken || undefined) : undefined,
     schedule:     body.schedule,
     timezone:     body.timezone,
     vpnEnabled:   body.vpnEnabled   || undefined,
@@ -106,6 +112,12 @@ router.post('/', requireRole('admin', 'agent'), async (req, res) => {
 
   configService.save(config);
   auditService.record(user, 'script.created', config.name, auditService.configAsChanges(config));
+
+  if (sourceType === 'upload') {
+    // Nothing to fetch yet — the script stays inert until its .tar.gz archive is
+    // POSTed to /:name/upload-archive, which extracts it and starts/registers the script.
+    return res.status(201).json({ message: 'Script added. Upload a .tar.gz archive to provide its code.' });
+  }
 
   setImmediate(async () => {
     try {
@@ -140,15 +152,19 @@ router.put('/:name', requireRole('admin', 'agent'), async (req, res) => {
   // '***' means the client echoed back our masked placeholder — treat as no change
   const incomingToken = (body.repoToken && body.repoToken !== '***') ? body.repoToken : undefined;
 
+  // sourceType is immutable after creation — an upload-based script never becomes git-based
+  // (or vice versa), and its repo/branch/repoToken stay untouched by edits regardless of body.
+  const isGit = (config.sourceType ?? 'git') === 'git';
+
   // Build updated config, preserving immutable/runtime fields
   const updated: ScriptConfig = {
     ...config,
     language:     (body.language     ?? config.language),
-    repo:         (body.repo         ?? config.repo),
-    branch:       (body.branch       ?? config.branch),
+    repo:         isGit ? (body.repo   ?? config.repo)   : undefined,
+    branch:       isGit ? (body.branch ?? config.branch) : undefined,
     entryPoint:   (body.entryPoint   ?? config.entryPoint),
     buildCommand: body.buildCommand  !== undefined ? (body.buildCommand  || undefined) : config.buildCommand,
-    repoToken:    body.repoToken     !== undefined ? (incomingToken      || undefined) : config.repoToken,
+    repoToken:    isGit ? (body.repoToken !== undefined ? (incomingToken || undefined) : config.repoToken) : undefined,
     port:         body.port          !== undefined ?  body.port                        : config.port,
     env:          body.env           !== undefined ?  body.env                         : config.env,
     runMode:      (body.runMode      ?? config.runMode),
@@ -161,7 +177,7 @@ router.put('/:name', requireRole('admin', 'agent'), async (req, res) => {
   const changes = auditService.diffConfigs(config, updated);
   if (!changes.length) return res.json({ message: 'No changes detected' });
 
-  const repoChanged = config.repo !== updated.repo || config.branch !== updated.branch;
+  const repoChanged = isGit && (config.repo !== updated.repo || config.branch !== updated.branch);
   const prevStatus  = await dockerService.getStatus(config.name);
   const wasRunning  = prevStatus === 'running';
 
@@ -190,13 +206,17 @@ router.put('/:name', requireRole('admin', 'agent'), async (req, res) => {
       if (updated.runMode === 'persistent') {
         if (wasRunning || modeChanged) {
           await dockerService.removeContainer(config.name);
-          if (!repoChanged) {
-            // Pull latest if repo hasn't changed
-            if (gitService.isCloned(config.name)) await gitService.pull(updated);
-          } else {
-            await gitService.clone(updated);
-            configService.save({ ...updated, lastSync: new Date().toISOString() });
+          if (isGit) {
+            if (!repoChanged) {
+              // Pull latest if repo hasn't changed
+              if (gitService.isCloned(config.name)) await gitService.pull(updated);
+            } else {
+              await gitService.clone(updated);
+              configService.save({ ...updated, lastSync: new Date().toISOString() });
+            }
           }
+          // Upload-based scripts: no git action — restart re-mounts whatever the last
+          // uploaded archive extracted into the repo directory.
           const runId = logService.createRun(updated.name, updated.language, updated.runMode);
           await dockerService.start(updated, runId);
         }
@@ -231,9 +251,15 @@ router.post('/:name/start', requireRole('admin', 'agent'), async (req, res) => {
   if (!config) return res.status(404).json({ error: 'Script not found' });
   const user = getUser(req);
 
+  const isGit = (config.sourceType ?? 'git') === 'git';
+
   try {
-    await gitService.cloneOrPull(config);
-    configService.save({ ...config, lastSync: new Date().toISOString() });
+    if (isGit) {
+      await gitService.cloneOrPull(config);
+      configService.save({ ...config, lastSync: new Date().toISOString() });
+    } else if (!gitService.isReady(config)) {
+      return res.status(400).json({ error: 'No archive uploaded yet. Upload a .tar.gz archive first.' });
+    }
     auditService.record(user, 'script.started', config.name, []);
 
     if (config.runMode === 'persistent') {
@@ -268,10 +294,17 @@ router.post('/:name/restart', requireRole('admin', 'agent'), async (req, res) =>
   if (!config) return res.status(404).json({ error: 'Script not found' });
   const user = getUser(req);
 
+  const isGit = (config.sourceType ?? 'git') === 'git';
+
   try {
-    await gitService.pull(config);
-    const updated = { ...config, lastSync: new Date().toISOString() };
-    configService.save(updated);
+    let updated = config;
+    if (isGit) {
+      await gitService.pull(config);
+      updated = { ...config, lastSync: new Date().toISOString() };
+      configService.save(updated);
+    }
+    // Upload-based scripts restart from whatever the last uploaded archive extracted —
+    // there's no git remote to pull from.
 
     const activeRun = logService.findRunningRun(config.name);
     if (activeRun) logService.markRunFailed(activeRun.runId, 'Script restarted');
@@ -279,7 +312,7 @@ router.post('/:name/restart', requireRole('admin', 'agent'), async (req, res) =>
     const runId = logService.createRun(config.name, config.language, config.runMode);
     await dockerService.restart(updated, runId);
     auditService.record(user, 'script.restarted', config.name, []);
-    res.json({ message: 'Script restarted with latest code', runId });
+    res.json({ message: isGit ? 'Script restarted with latest code' : 'Script restarted', runId });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
@@ -288,8 +321,12 @@ router.post('/:name/run-now', requireRole('admin', 'agent'), async (req, res) =>
   if (!config) return res.status(404).json({ error: 'Script not found' });
   const user = getUser(req);
 
-  if (!gitService.isCloned(config.name))
-    return res.status(400).json({ error: 'Repository not cloned yet. Start the script first.' });
+  if (!gitService.isReady(config)) {
+    const msg = (config.sourceType ?? 'git') === 'git'
+      ? 'Repository not cloned yet. Start the script first.'
+      : 'No archive uploaded yet.';
+    return res.status(400).json({ error: msg });
+  }
 
   const runId = logService.createRun(config.name, config.language, config.runMode);
   auditService.record(user, 'run.triggered', config.name, []);
@@ -326,7 +363,7 @@ router.get('/:name/logs', async (req, res) => {
 router.get('/:name/status', async (req, res) => {
   const config = configService.get(req.params.name);
   if (!config) return res.status(404).json({ error: 'Script not found' });
-  const cloned  = gitService.isCloned(config.name);
+  const cloned  = gitService.isReady(config);
   const status  = cloned ? await dockerService.getStatus(config.name) : 'not_cloned';
   const nextRun = config.runMode === 'scheduled' ? cronService.getNextRun(config.name) : null;
   res.json({ config: sanitizeConfig(config), status, nextRun });
@@ -370,6 +407,8 @@ router.delete('/:name/schedule', requireRole('admin', 'agent'), (req, res) => {
 router.get('/:name/check-update', requireRole('admin', 'agent'), async (req, res) => {
   const config = configService.get(req.params.name);
   if (!config) return res.status(404).json({ error: 'Script not found' });
+  if ((config.sourceType ?? 'git') === 'upload')
+    return res.status(400).json({ error: 'This is an upload-based script — it has no git remote to check. Upload a new archive to replace its code instead.' });
   if (!gitService.isCloned(config.name))
     return res.status(400).json({ error: 'Repository not cloned yet. Start the script first.' });
   try {
@@ -381,6 +420,8 @@ router.get('/:name/check-update', requireRole('admin', 'agent'), async (req, res
 router.post('/:name/update', requireRole('admin', 'agent'), async (req, res) => {
   const config = configService.get(req.params.name);
   if (!config) return res.status(404).json({ error: 'Script not found' });
+  if ((config.sourceType ?? 'git') === 'upload')
+    return res.status(400).json({ error: 'This is an upload-based script — it has no git remote to update from. Upload a new archive to replace its code instead.' });
   if (!gitService.isCloned(config.name))
     return res.status(400).json({ error: 'Repository not cloned yet. Start the script first.' });
   const user = getUser(req);
@@ -441,8 +482,8 @@ router.get('/:name/download', requireRole('admin', 'agent'), (req, res) => {
   const config = configService.get(req.params.name);
   if (!config) return res.status(404).json({ error: 'Script not found' });
 
-  if (!gitService.isCloned(config.name))
-    return res.status(400).json({ error: 'Repository not cloned yet. Start the script first.' });
+  if (!gitService.isReady(config))
+    return res.status(400).json({ error: 'No source code present yet.' });
 
   const repoPath = gitService.getLocalPath(config.name);
   const filename = `${config.name}.tar.gz`;
@@ -465,6 +506,49 @@ router.get('/:name/download', requireRole('admin', 'agent'), (req, res) => {
   });
 
   tar.stderr.on('data', () => { /* suppress tar warnings */ });
+});
+
+// POST /api/scripts/:name/upload-archive — provide/replace an upload-based script's code from
+// a .tar.gz/.tgz archive (e.g. one produced by GET /:name/download). Used both for the initial
+// upload right after creation and for later "replace code" uploads. Never touches git.
+router.post('/:name/upload-archive', requireRole('admin', 'agent'), archiveUpload.single('archive'), async (req, res) => {
+  const config = configService.get(req.params.name);
+  if (!config) return res.status(404).json({ error: 'Script not found' });
+  if ((config.sourceType ?? 'git') !== 'upload')
+    return res.status(400).json({ error: 'Archive upload only applies to upload-based scripts' });
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+  if (!/\.(tar\.gz|tgz)$/i.test(req.file.originalname))
+    return res.status(400).json({ error: 'File must be a .tar.gz or .tgz archive' });
+
+  const user = getUser(req);
+
+  try {
+    await archiveService.extract(config.name, req.file.buffer);
+  } catch (err: any) {
+    return res.status(400).json({ error: `Archive extraction failed: ${err.message}` });
+  }
+
+  const updated = { ...config, lastSync: new Date().toISOString() };
+  configService.save(updated);
+  auditService.record(user, 'script.archive_uploaded', config.name, []);
+
+  try {
+    if (updated.runMode === 'persistent') {
+      const activeRun = logService.findRunningRun(config.name);
+      if (activeRun) logService.markRunFailed(activeRun.runId, 'New archive uploaded');
+      await dockerService.removeContainer(config.name, updated.vpnEnabled);
+      const runId = logService.createRun(updated.name, updated.language, updated.runMode);
+      await dockerService.start(updated, runId);
+      res.json({ message: 'Archive uploaded — script (re)started', runId });
+    } else if (updated.runMode === 'scheduled') {
+      if (updated.schedule) cronService.register(updated);
+      res.json({ message: 'Archive uploaded' });
+    } else {
+      res.json({ message: 'Archive uploaded' });
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: `Archive saved but failed to (re)start the script: ${err.message}` });
+  }
 });
 
 // GET /api/scripts/:name/env-file — returns the script's env vars as a downloadable .env file
