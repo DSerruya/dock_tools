@@ -35,10 +35,11 @@ function describeCron(expr) {
 function relativeTime(iso) {
   if (!iso) return '—';
   const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
-  if (s < 60)   return `${s}s ago`;
-  const m = Math.floor(s/60); if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m/60); if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h/24)}d ago`;
+  const abs = Math.abs(s);
+  if (abs < 60)   return `${s}s ago`;
+  const m = Math.trunc(s/60); if (Math.abs(m) < 60) return `${m}m ago`;
+  const h = Math.trunc(s/3600); if (Math.abs(h) < 24) return `${h}h ago`;
+  return `${Math.trunc(s/86400)}d ago`;
 }
 function timeUntil(iso) {
   if (!iso) return '—';
