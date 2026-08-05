@@ -1,12 +1,18 @@
 import Dockerode from 'dockerode';
 import { PassThrough } from 'stream';
-import { ScriptConfig, ContainerStatus } from '../types';
+import * as fs from 'fs';
+import { ScriptConfig, ContainerStatus, DEPS_SENTINEL } from '../types';
 import * as logService from './logService';
 
 const docker = new Dockerode({ socketPath: '/var/run/docker.sock' });
 
 const DOCKER_NETWORK         = process.env.DOCKER_NETWORK         || 'bridge';
 const HOST_SCRIPTS_DATA_PATH = process.env.HOST_SCRIPTS_DATA_PATH  || '/app/scripts-data';
+// HOST_SCRIPTS_DATA_PATH is only meaningful to the Docker daemon (bind-mount source paths for
+// containers this process asks it to create) — it's the real host path and does not exist inside
+// this container's own filesystem. DATA_DIR is this process's own local view of the same data,
+// matching gitService.ts/configService.ts, and is what any fs.* call in this file must use.
+const DATA_DIR               = process.env.DATA_DIR               || '/app/scripts-data';
 const VPN_IMAGE              = 'alpine:3.19';
 
 const IMAGE_MAP: Record<string, string> = {
@@ -35,6 +41,16 @@ function containerName(name: string): string    { return `script-${name}`; }
 function vpnContainerName(name: string): string { return `script-vpn-${name}`; }
 function hostRepoPath(name: string): string     { return `${HOST_SCRIPTS_DATA_PATH}/${name}/repo`; }
 function hostVpnConfigPath(name: string): string { return `${HOST_SCRIPTS_DATA_PATH}/vpn/${name}.ovpn`; }
+// Local (this-process) view of the same repo dir the Docker daemon bind-mounts via
+// hostRepoPath — use this one for any fs.* call made from within dockerService itself.
+function localDepsSentinelPath(name: string): string { return `${DATA_DIR}/${name}/repo/${DEPS_SENTINEL}`; }
+
+// Deletes the "deps installed" marker so the next run re-executes buildCommand.
+// Called when buildCommand changes (routes/scripts.ts edit handler) or when the
+// user manually triggers an Update Deps run.
+export function invalidateDepsCache(name: string): void {
+  try { fs.unlinkSync(localDepsSentinelPath(name)); } catch { /* no sentinel yet */ }
+}
 
 async function getContainer(name: string): Promise<Dockerode.Container | null> {
   try {
@@ -70,11 +86,15 @@ async function removeIfExists(name: string): Promise<void> {
   await c.remove({ force: true });
 }
 
-function resolveCmd(config: ScriptConfig): string[] {
-  if (config.buildCommand) {
-    // Build phase + custom start command (entryPoint is the shell start command, e.g. "npm start")
-    return ['sh', '-c', `${config.buildCommand} && ${config.entryPoint}`];
+function resolveCmd(config: ScriptConfig, skipBuild: boolean): string[] {
+  if (config.buildCommand && !skipBuild) {
+    // Build phase + custom start command (entryPoint is the shell start command, e.g. "npm start").
+    // The sentinel touch only runs if buildCommand exits 0, so preserveEnv's cache is only ever
+    // populated by a verified-successful install, never optimistically.
+    return ['sh', '-c', `${config.buildCommand} && touch /app/${DEPS_SENTINEL} && ${config.entryPoint}`];
   }
+  // No build step needed — either there was never one, or preserveEnv found a verified sentinel
+  // from a prior run and we're skipping straight to the start command.
   return (CMD_MAP[config.language] || CMD_MAP.node)(config.entryPoint);
 }
 
@@ -139,7 +159,8 @@ async function stopVpnSidecar(name: string): Promise<void> {
 
 async function createContainer(config: ScriptConfig, restartPolicy: string): Promise<Dockerode.Container> {
   const image = IMAGE_MAP[config.language] || 'node:20-slim';
-  const cmd   = resolveCmd(config);
+  const skipBuild = !!config.preserveEnv && !!config.buildCommand && fs.existsSync(localDepsSentinelPath(config.name));
+  const cmd   = resolveCmd(config, skipBuild);
 
   await pullImage(image);
 
@@ -268,23 +289,28 @@ export async function stop(name: string, vpnEnabled?: boolean): Promise<void> {
   if (vpnEnabled) await stopVpnSidecar(name);
 }
 
-export async function restart(config: ScriptConfig, runId: string): Promise<void> {
+export async function restart(config: ScriptConfig, runId: string, opts?: { forceRebuild?: boolean }): Promise<void> {
   if (config.vpnEnabled) {
     await startVpnSidecar(config.name, config.vpnMssFix);
     await prependVpnLogs(config.name, runId);
   }
   await removeIfExists(config.name);
+  // Invalidate only after the old container is confirmed gone — otherwise a build still in
+  // flight in that container could touch the sentinel after we've cleared it, resurrecting
+  // stale "deps installed" state right before we check for it in createContainer().
+  if (opts?.forceRebuild) invalidateDepsCache(config.name);
   const c = await createContainer(config, 'unless-stopped');
   await c.start();
   startLogStream(c, runId, config.name);
 }
 
-export async function runOnce(config: ScriptConfig, runId: string): Promise<{ exitCode: number }> {
+export async function runOnce(config: ScriptConfig, runId: string, opts?: { forceRebuild?: boolean }): Promise<{ exitCode: number }> {
   if (config.vpnEnabled) {
     await startVpnSidecar(config.name, config.vpnMssFix);
     await prependVpnLogs(config.name, runId);
   }
   await removeIfExists(config.name);
+  if (opts?.forceRebuild) invalidateDepsCache(config.name);
   const c = await createContainer(config, 'no');
   await c.start();
 

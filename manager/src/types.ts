@@ -6,6 +6,11 @@ export type ContainerStatus = 'running' | 'stopped' | 'error' | 'not_cloned';
 // touches git — no clone/pull/webhook-sync, even if the archive happens to contain a .git dir.
 export type SourceType = 'git' | 'upload';
 
+// Marker file dockerService touches inside the repo dir once buildCommand succeeds, so a
+// preserveEnv run can skip reinstalling. Untracked, so gitService's post-pull `git clean -fd`
+// must exclude it explicitly or every pull would wipe it and defeat the whole feature.
+export const DEPS_SENTINEL = '.deps-installed';
+
 export interface ScriptConfig {
   name: string;
   language: Language;
@@ -17,6 +22,8 @@ export interface ScriptConfig {
   env?: Record<string, string>;
   buildCommand?: string;   // optional pre-start step, e.g. "npm install && npm run build"
                            // when set, entryPoint is treated as the start command (e.g. "npm start")
+  preserveEnv?: boolean;   // skip re-running buildCommand once it has succeeded, until buildCommand
+                           // changes or "Update Deps" is triggered manually (see dockerService.ts sentinel file)
   repoToken?: string;      // GitHub Personal Access Token for private repos (stored, never logged)
   runMode: RunMode;
   schedule?: string;

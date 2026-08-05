@@ -1,7 +1,7 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import simpleGit from 'simple-git';
-import { ScriptConfig } from '../types';
+import { ScriptConfig, DEPS_SENTINEL } from '../types';
 
 const DATA_DIR = process.env.DATA_DIR || '/app/scripts-data';
 
@@ -66,7 +66,9 @@ export async function pull(rawConfig: ScriptConfig): Promise<void> {
   }
   await git.fetch('origin', config.branch);
   await git.raw(['reset', '--hard', `origin/${config.branch}`]);
-  await git.raw(['clean', '-fd']);
+  // -e excludes the preserveEnv sentinel — it's untracked by design, and a pull shouldn't
+  // silently force the next run to reinstall dependencies that are still perfectly valid.
+  await git.raw(['clean', '-fd', '-e', DEPS_SENTINEL]);
 }
 
 export function deleteClone(name: string): void {

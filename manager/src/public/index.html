@@ -937,6 +937,13 @@
         <div id="buildcmd-hint" style="font-size:11px;color:var(--muted);margin-top:5px;display:none">
           ⚡ When set, the <strong>Entry Point</strong> above becomes the <strong>start command</strong> (e.g. <code>npm start</code>) and the volume is mounted read-write so build output can be written.
         </div>
+        <div id="preserve-env-row" style="display:none;align-items:center;gap:10px;margin-top:8px">
+          <label class="toggle-switch" title="Skip re-running the build command once it has succeeded — use Update Deps to refresh manually">
+            <input type="checkbox" id="f-preserve-env" />
+            <span class="toggle-slider"></span>
+          </label>
+          <span style="font-size:11px;color:var(--muted)">Preserve environment (skip reinstalling deps on every run)</span>
+        </div>
       </div>
       <div class="form-group">
         <label>Run Mode</label>

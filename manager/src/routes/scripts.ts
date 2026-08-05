@@ -102,6 +102,7 @@ router.post('/', requireRole('admin', 'agent'), async (req, res) => {
     port:         body.port,
     env:          body.env,
     buildCommand: body.buildCommand || undefined,
+    preserveEnv:  body.preserveEnv  || undefined,
     repoToken:    sourceType === 'git' ? (body.repoToken || undefined) : undefined,
     schedule:     body.schedule,
     timezone:     body.timezone,
@@ -164,6 +165,7 @@ router.put('/:name', requireRole('admin', 'agent'), async (req, res) => {
     branch:       isGit ? (body.branch ?? config.branch) : undefined,
     entryPoint:   (body.entryPoint   ?? config.entryPoint),
     buildCommand: body.buildCommand  !== undefined ? (body.buildCommand  || undefined) : config.buildCommand,
+    preserveEnv:  body.preserveEnv   !== undefined ?  body.preserveEnv                 : config.preserveEnv,
     repoToken:    isGit ? (body.repoToken !== undefined ? (incomingToken || undefined) : config.repoToken) : undefined,
     port:         body.port          !== undefined ?  body.port                        : config.port,
     env:          body.env           !== undefined ?  body.env                         : config.env,
@@ -176,6 +178,12 @@ router.put('/:name', requireRole('admin', 'agent'), async (req, res) => {
 
   const changes = auditService.diffConfigs(config, updated);
   if (!changes.length) return res.json({ message: 'No changes detected' });
+
+  // A changed buildCommand means the last successful install no longer reflects what should run.
+  // Actual invalidation happens further down, once any running container is confirmed torn down
+  // (or immediately if nothing is running) — doing it before that removal would race an in-flight
+  // build in the old container touching the sentinel back into existence.
+  const buildCommandChanged = config.buildCommand !== updated.buildCommand;
 
   const repoChanged = isGit && (config.repo !== updated.repo || config.branch !== updated.branch);
   const prevStatus  = await dockerService.getStatus(config.name);
@@ -206,6 +214,7 @@ router.put('/:name', requireRole('admin', 'agent'), async (req, res) => {
       if (updated.runMode === 'persistent') {
         if (wasRunning || modeChanged) {
           await dockerService.removeContainer(config.name);
+          if (buildCommandChanged) dockerService.invalidateDepsCache(config.name);
           if (isGit) {
             if (!repoChanged) {
               // Pull latest if repo hasn't changed
@@ -219,9 +228,14 @@ router.put('/:name', requireRole('admin', 'agent'), async (req, res) => {
           // uploaded archive extracted into the repo directory.
           const runId = logService.createRun(updated.name, updated.language, updated.runMode);
           await dockerService.start(updated, runId);
+        } else if (buildCommandChanged) {
+          // Not running and mode didn't change — nothing to tear down, so it's already
+          // safe to invalidate right away; the next manual start will pick it up.
+          dockerService.invalidateDepsCache(config.name);
         }
       } else if (updated.runMode === 'scheduled') {
         await dockerService.removeContainer(config.name);
+        if (buildCommandChanged) dockerService.invalidateDepsCache(config.name);
         if (updated.schedule) cronService.register(updated);
       }
     } catch (err) { console.error(`[edit] ${config.name}:`, err); }
@@ -341,6 +355,48 @@ router.post('/:name/run-now', requireRole('admin', 'agent'), async (req, res) =>
       logService.markRunFailed(runId, err.message);
     }
   });
+});
+
+// POST /api/scripts/:name/update-deps — manually clears the preserveEnv sentinel so the
+// next run reinstalls buildCommand once, then goes straight back to skipping it.
+router.post('/:name/update-deps', requireRole('admin', 'agent'), async (req, res) => {
+  const config = configService.get(req.params.name);
+  if (!config) return res.status(404).json({ error: 'Script not found' });
+  if (!config.buildCommand) return res.status(400).json({ error: 'This script has no buildCommand to update' });
+  if (config.runMode !== 'persistent' && !gitService.isReady(config)) {
+    const msg = (config.sourceType ?? 'git') === 'git'
+      ? 'Repository not cloned yet. Start the script first.'
+      : 'No archive uploaded yet.';
+    return res.status(400).json({ error: msg });
+  }
+  const user = getUser(req);
+
+  auditService.record(user, 'script.deps_updated', config.name, []);
+
+  // forceRebuild is applied inside dockerService, right after the old container is confirmed
+  // torn down — invalidating the sentinel here instead would race a still-running container's
+  // in-flight build touching it back into existence before removal completes.
+  try {
+    if (config.runMode === 'persistent') {
+      const activeRun = logService.findRunningRun(config.name);
+      if (activeRun) logService.markRunFailed(activeRun.runId, 'Dependencies updating');
+      const runId = logService.createRun(config.name, config.language, config.runMode);
+      await dockerService.restart(config, runId, { forceRebuild: true });
+      res.json({ message: 'Reinstalling dependencies and restarting', runId });
+    } else {
+      const runId = logService.createRun(config.name, config.language, config.runMode);
+      res.json({ message: 'Reinstalling dependencies', runId });
+      setImmediate(async () => {
+        try {
+          const result = await dockerService.runOnce(config, runId, { forceRebuild: true });
+          logService.finishRun(runId, result.exitCode);
+          configService.save({ ...config, lastRun: new Date().toISOString() });
+        } catch (err: any) {
+          logService.markRunFailed(runId, err.message);
+        }
+      });
+    }
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
 router.get('/:name/logs', async (req, res) => {

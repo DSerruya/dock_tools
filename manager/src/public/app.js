@@ -199,12 +199,18 @@ function renderCard({ config, status, nextRun, vpnStatus }) {
   const canRestart   = !isPending && status === 'running';
   const canRunNow    = !isPending && status !== 'not_cloned';
 
+  const updateDepsBtn = (canWrite() && config.preserveEnv && config.buildCommand)
+    ? `<button class="btn btn-ghost btn-sm" onclick="updateDeps('${config.name}')" ${(isScheduled ? canRunNow : canRestart) ? '' : 'disabled'} title="Reinstall dependencies once, then skip again until the next Update Deps or edit">⟲ Update Deps</button>`
+    : '';
+
   const writeActions = canWrite() ? (
     isScheduled
-      ? `<button class="btn btn-ghost btn-sm" onclick="runNow('${config.name}')" ${canRunNow ? '' : 'disabled'}>▶ Run Now</button>`
+      ? `<button class="btn btn-ghost btn-sm" onclick="runNow('${config.name}')" ${canRunNow ? '' : 'disabled'}>▶ Run Now</button>
+         ${updateDepsBtn}`
       : `<button class="btn btn-ghost btn-sm" onclick="startScript('${config.name}')"   ${canStart   ? '' : 'disabled'}>▶ Start</button>
          <button class="btn btn-ghost btn-sm" onclick="stopScript('${config.name}')"    ${canStop    ? '' : 'disabled'}>⏹ Stop</button>
-         <button class="btn btn-ghost btn-sm" onclick="restartScript('${config.name}')" ${canRestart ? '' : 'disabled'}>↺ Restart</button>`
+         <button class="btn btn-ghost btn-sm" onclick="restartScript('${config.name}')" ${canRestart ? '' : 'disabled'}>↺ Restart</button>
+         ${updateDepsBtn}`
   ) : '';
 
   const editBtn = canWrite()
@@ -270,6 +276,13 @@ async function restartScript(name) {
   _scriptPendingStart(name);
   toast(`Restarting ${name}…`, 'info');
   try { await api('POST', `/api/scripts/${name}/restart`); toast(`${name} restarted`, 'success'); }
+  catch (e) { toast(e.message, 'error'); }
+  finally { _scriptPendingEnd(name); }
+}
+async function updateDeps(name) {
+  _scriptPendingStart(name);
+  toast(`Reinstalling dependencies for ${name}…`, 'info');
+  try { await api('POST', `/api/scripts/${name}/update-deps`); toast(`${name} dependencies updating`, 'success'); }
   catch (e) { toast(e.message, 'error'); }
   finally { _scriptPendingEnd(name); }
 }
@@ -1335,6 +1348,7 @@ function resetForm() {
   document.getElementById('f-port').value      = '';
   document.getElementById('f-timezone').value  = 'UTC';
   document.getElementById('rm-persistent').checked = true;
+  document.getElementById('f-preserve-env').checked = false;
   document.getElementById('env-rows').innerHTML    = '';
   cancelEnvPaste();
   document.getElementById('cron-preview').textContent = '';
@@ -1559,6 +1573,7 @@ function populateScriptForm(config) {
   document.getElementById('f-branch').value   = config.branch || '';
   document.getElementById('f-entry').value    = config.entryPoint;
   document.getElementById('f-buildcmd').value = config.buildCommand || '';
+  document.getElementById('f-preserve-env').checked = !!config.preserveEnv;
   document.getElementById('f-port').value     = config.port || '';
   document.getElementById('f-token').value    = '';
   document.getElementById('f-token').placeholder = config.repoToken
@@ -1602,6 +1617,8 @@ function onBuildCmdChange() {
   document.getElementById('entry-point-label').textContent = hasBuild ? 'Start Command *' : 'Entry Point *';
   document.getElementById('f-entry').placeholder           = hasBuild ? 'npm start'       : 'main.py';
   document.getElementById('buildcmd-hint').style.display  = hasBuild ? '' : 'none';
+  document.getElementById('preserve-env-row').style.display = hasBuild ? 'flex' : 'none';
+  if (!hasBuild) document.getElementById('f-preserve-env').checked = false;
 }
 
 function toggleRunMode() {
@@ -1694,6 +1711,7 @@ function collectScriptFormBody() {
   const sched    = document.getElementById('f-schedule').value.trim();
   const tz       = document.getElementById('f-timezone').value;
   const buildcmd = document.getElementById('f-buildcmd').value.trim();
+  const preserveEnv = document.getElementById('f-preserve-env').checked;
   const token    = document.getElementById('f-token').value.trim();
 
   const env = {};
@@ -1713,6 +1731,7 @@ function collectScriptFormBody() {
   }
   if (port)                   body.port         = parseInt(port);
   body.buildCommand = buildcmd;           // empty string clears it on edit
+  body.preserveEnv  = buildcmd ? preserveEnv : false;
   body.schedule  = runMode === 'scheduled' ? sched : '';
   body.timezone  = tz;
   body.vpnMssFix = vpnMssFix;             // empty string clears it on edit
