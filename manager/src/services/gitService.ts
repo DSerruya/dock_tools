@@ -66,8 +66,10 @@ export async function pull(rawConfig: ScriptConfig): Promise<void> {
   }
   await git.fetch('origin', config.branch);
   await git.raw(['reset', '--hard', `origin/${config.branch}`]);
-  // -e excludes the preserveEnv sentinel — it's untracked by design, and a pull shouldn't
-  // silently force the next run to reinstall dependencies that are still perfectly valid.
+  // -e excludes the preserveEnv sentinel from clean. A pull always invalidates it (every
+  // caller below passes forceRebuild), but that invalidation happens later, after the old
+  // container is confirmed torn down — letting clean touch it here, while that container
+  // might still be running a build against this same bind-mounted dir, would race it.
   await git.raw(['clean', '-fd', '-e', DEPS_SENTINEL]);
 }
 

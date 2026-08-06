@@ -214,7 +214,9 @@ router.put('/:name', requireRole('admin', 'agent'), async (req, res) => {
       if (updated.runMode === 'persistent') {
         if (wasRunning || modeChanged) {
           await dockerService.removeContainer(config.name);
-          if (buildCommandChanged) dockerService.invalidateDepsCache(config.name);
+          // isGit: about to pull/clone below, which may bring in dependency changes that
+          // buildCommand's text never mentions — force a reinstall either way.
+          if (buildCommandChanged || isGit) dockerService.invalidateDepsCache(config.name);
           if (isGit) {
             if (!repoChanged) {
               // Pull latest if repo hasn't changed
@@ -280,9 +282,12 @@ router.post('/:name/start', requireRole('admin', 'agent'), async (req, res) => {
       const activeRun = logService.findRunningRun(config.name);
       if (activeRun) logService.markRunFailed(activeRun.runId, 'Script restarted');
       const runId = logService.createRun(config.name, config.language, config.runMode);
-      await dockerService.start(config, runId);
+      await dockerService.start(config, runId, { forceRebuild: isGit });
       res.json({ message: 'Script started', runId });
     } else {
+      // No start/restart happens here to race with, so it's safe to invalidate immediately —
+      // the next scheduled run or Run Now will see no sentinel and reinstall.
+      if (isGit) dockerService.invalidateDepsCache(config.name);
       if (config.schedule) cronService.register(config);
       res.json({ message: 'Scheduled script registered. Use "Run Now" to trigger immediately.' });
     }
@@ -324,7 +329,10 @@ router.post('/:name/restart', requireRole('admin', 'agent'), async (req, res) =>
     if (activeRun) logService.markRunFailed(activeRun.runId, 'Script restarted');
 
     const runId = logService.createRun(config.name, config.language, config.runMode);
-    await dockerService.restart(updated, runId);
+    // A pull may have just brought in dependency changes (e.g. a new Gemfile entry) that
+    // buildCommand's text never mentions — force a reinstall on every git-based restart rather
+    // than risk running against a stale, cached environment.
+    await dockerService.restart(updated, runId, { forceRebuild: isGit });
     auditService.record(user, 'script.restarted', config.name, []);
     res.json({ message: isGit ? 'Script restarted with latest code' : 'Script restarted', runId });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
@@ -493,9 +501,12 @@ router.post('/:name/update', requireRole('admin', 'agent'), async (req, res) => 
       const activeRun = logService.findRunningRun(config.name);
       if (activeRun) logService.markRunFailed(activeRun.runId, 'Script updated');
       const runId = logService.createRun(config.name, config.language, config.runMode);
-      await dockerService.restart(updated, runId);
+      await dockerService.restart(updated, runId, { forceRebuild: true });
       res.json({ message: 'Update applied and script restarted' });
     } else {
+      // No restart happens here to race with — safe to invalidate immediately so the next
+      // scheduled run or Run Now reinstalls against the code we just pulled.
+      dockerService.invalidateDepsCache(config.name);
       res.json({ message: 'Update applied' });
     }
   } catch (err: any) { res.status(500).json({ error: err.message }); }

@@ -270,12 +270,13 @@ async function captureOnceLog(container: Dockerode.Container, runId: string): Pr
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-export async function start(config: ScriptConfig, runId: string): Promise<void> {
+export async function start(config: ScriptConfig, runId: string, opts?: { forceRebuild?: boolean }): Promise<void> {
   if (config.vpnEnabled) {
     await startVpnSidecar(config.name, config.vpnMssFix);
     await prependVpnLogs(config.name, runId);
   }
   await removeIfExists(config.name);
+  if (opts?.forceRebuild) invalidateDepsCache(config.name);
   const c = await createContainer(config, 'unless-stopped');
   await c.start();
   startLogStream(c, runId, config.name);
