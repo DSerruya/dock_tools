@@ -85,7 +85,14 @@
     .howto-btn:hover { color: var(--accent-h); border-color: var(--accent); background: rgba(99,102,241,.1); }
 
     /* ── HowTo modal ── */
-    .howto-modal { max-width: 680px; }
+    .howto-modal { max-width: 760px; }
+    .howto-section-title { font-size: 13px; font-weight: 700; margin: 18px 0 8px; }
+    .howto-section-title:first-child { margin-top: 0; }
+    .howto-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 10px; }
+    .howto-table th, .howto-table td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--border); }
+    .howto-table th { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .4px; }
+    .howto-list { font-size: 12px; line-height: 1.7; margin: 0 0 10px 18px; color: var(--text); }
+    .howto-list li { margin-bottom: 4px; }
     .howto-tabs  { display: flex; gap: 6px; margin-bottom: 18px; flex-wrap: wrap; }
     .howto-tab   { padding: 5px 14px; border-radius: 6px; border: 1px solid var(--border);
                    background: none; color: var(--muted); cursor: pointer; font-size: 12px;
@@ -416,7 +423,7 @@
   </div>
   <div class="header-actions">
     <button class="howto-btn" id="theme-toggle-btn" onclick="toggleTheme()" title="Toggle light/dark mode">☀</button>
-    <button class="howto-btn" onclick="openHowTo()" title="How to add a script">?</button>
+    <button class="howto-btn" onclick="openHowTo()" title="Help & configuration guide">?</button>
     <span id="user-badge" class="role-badge" style="display:none"></span>
   </div>
 </header>
@@ -1275,7 +1282,7 @@
 <div id="howto-modal" class="overlay hidden" onclick="if(event.target===this)closeHowTo()">
   <div class="modal howto-modal">
     <div class="modal-header">
-      <span class="modal-title">📖 How to add a script</span>
+      <span class="modal-title">📖 Docs &amp; How-To</span>
       <button class="modal-close" onclick="closeHowTo()">×</button>
     </div>
     <div class="modal-body">
@@ -1284,6 +1291,12 @@
         <button class="howto-tab"        onclick="showHowToTab('python')">🐍 Python</button>
         <button class="howto-tab"        onclick="showHowToTab('node')">🟩 Node.js</button>
         <button class="howto-tab"        onclick="showHowToTab('typescript')">🔷 TypeScript</button>
+        <button class="howto-tab"        onclick="showHowToTab('advanced')">⚙️ Advanced</button>
+        <button class="howto-tab"        onclick="showHowToTab('vpn')">🔒 VPN</button>
+        <button class="howto-tab"        onclick="showHowToTab('upload')">📦 Upload Code</button>
+        <button class="howto-tab"        onclick="showHowToTab('webhook')">🔗 Webhooks</button>
+        <button class="howto-tab"        onclick="showHowToTab('roles')">👥 Roles</button>
+        <button class="howto-tab"        onclick="showHowToTab('admin')">🛠 Admin &amp; Ops</button>
       </div>
 
       <!-- Ruby -->
@@ -1396,8 +1409,150 @@
           and Entry Point to <code>node dist/index.js</code>.
         </div>
       </div>
+
+      <!-- Advanced -->
+      <div id="howto-advanced" class="howto-panel">
+        <div class="howto-section-title">Build Command &amp; Preserve Environment</div>
+        <div class="howto-note">
+          Build Command re-runs on <strong>every</strong> start by default — for a slow
+          <code>bundle install</code>/<code>npm install</code> that's most of your run time spent
+          reinstalling unchanged dependencies. Turn on <strong>Preserve Environment</strong>
+          (appears once a Build Command is set) to skip it once it has succeeded, verified by a
+          marker file written only after a real success.<br><br>
+          It automatically reinstalls again when: you edit the Build Command text, you click the
+          card's <strong>⟲ Update Deps</strong> button, or — for git-based scripts — the next
+          restart/start/update pulls new commits, even if Build Command's text didn't change
+          (a pull can add a new dependency the build command never mentions).
+          <code>Run Now</code> doesn't pull, so it's unaffected and still skips normally.
+        </div>
+        <div class="howto-section-title">Run Mode</div>
+        <div class="howto-note">
+          <strong>Persistent</strong> — always-on container, restarts automatically if it exits.
+          <strong>Scheduled</strong> — runs as a one-shot container on a cron tick + timezone;
+          use <strong>Run Now</strong> to trigger it immediately without waiting for the schedule.
+        </div>
+        <div class="howto-section-title">Port &amp; Environment Variables</div>
+        <div class="howto-note">
+          <strong>Port</strong> (persistent only) publishes the container's port on the host and
+          adds an "Open App ↗" link to the card. <strong>Env vars</strong> are per-script,
+          stored outside the repo — add rows individually or bulk-paste a <code>.env</code> block;
+          download the current set from the card anytime.
+        </div>
+      </div>
+
+      <!-- VPN -->
+      <div id="howto-vpn" class="howto-panel">
+        <div class="howto-note">
+          Toggle <strong>VPN Enabled</strong> and upload a <code>.ovpn</code> config (≤512 KB) to
+          route all of a script's traffic through OpenVPN via a dedicated sidecar container — no
+          code changes needed.<br><br>
+          <strong>MSS Fix</strong> (digits only, e.g. <code>1360</code>) — set this if large
+          queries/responses over the tunnel hang or truncate while small ones work fine. That's a
+          classic Path-MTU-Discovery blackhole symptom (ICMP dropped somewhere on the path), which
+          <code>--mssfix</code> works around but <code>iptables --clamp-mss-to-pmtu</code> can't
+          (it depends on a PMTU cache that never populates). Use Admin → SQL-over-VPN test to find
+          the right value against a real query before setting it here — see
+          <code>MTU-VPN-DEBUGGING-PLAYBOOK.md</code> in the repo for the full diagnosis story.
+        </div>
+      </div>
+
+      <!-- Upload Code -->
+      <div id="howto-upload" class="howto-panel">
+        <div class="howto-note">
+          For code with no git repo. Pick <strong>Source Type: Upload</strong> when creating the
+          script (immutable afterward) — it's created inert, no container yet.<br><br>
+          1. Upload a <code>.tar.gz</code>/<code>.tgz</code> (≤250 MB) with one top-level
+          directory — its contents get extracted (stripping that top directory), then the script
+          starts/registers automatically.<br>
+          2. <strong>Replace code</strong> anytime the same way — full overwrite, no diffing.<br>
+          3. <strong>⬇ Download</strong> the current code from the card — same format the upload
+          expects, so it round-trips cleanly to seed another script.<br><br>
+          Webhooks, Check Update, and Apply Update don't apply here (no git remote) — replacing
+          the archive is the only way to update code.
+        </div>
+      </div>
+
+      <!-- Webhooks -->
+      <div id="howto-webhook" class="howto-panel">
+        <div class="howto-note">
+          Git-based scripts show a webhook URL on their card:
+          <code>http://&lt;your-host&gt;/webhook/&lt;script-name&gt;</code>. Add it in GitHub →
+          your repo → <strong>Settings → Webhooks → Add webhook</strong>:
+        </div>
+        <table class="howto-table">
+          <tr><th>Field</th><th>Value</th></tr>
+          <tr><td>Payload URL</td><td>the URL shown on the script's card</td></tr>
+          <tr><td>Content type</td><td><code>application/json</code></td></tr>
+          <tr><td>Secret</td><td>your <code>WEBHOOK_SECRET</code> value</td></tr>
+          <tr><td>Events</td><td>just <strong>push</strong></td></tr>
+        </table>
+        <div class="howto-note">
+          On a matching push: pulls latest code, then restarts immediately if persistent, or just
+          waits for the next scheduled tick if scheduled. Signature verified via HMAC-SHA256 —
+          wrong/missing secret is rejected, and the endpoint 503s if <code>WEBHOOK_SECRET</code>
+          isn't set at all. A push to a different branch than the script's configured one is
+          silently ignored.
+        </div>
+      </div>
+
+      <!-- Roles -->
+      <div id="howto-roles" class="howto-panel">
+        <table class="howto-table">
+          <tr><th>Action</th><th>Viewer</th><th>Agent</th><th>Admin</th></tr>
+          <tr><td>View scripts, logs, status, export</td><td>✅</td><td>✅</td><td>✅</td></tr>
+          <tr><td>Create/edit/start/stop/restart, upload VPN/archive</td><td></td><td>✅</td><td>✅</td></tr>
+          <tr><td>View audit log, import scripts</td><td></td><td>✅</td><td>✅</td></tr>
+          <tr><td>Delete scripts</td><td></td><td></td><td>✅</td></tr>
+          <tr><td>Users, backups, self-update, admin ops tools</td><td></td><td></td><td>✅</td></tr>
+        </table>
+        <div class="howto-note">
+          Users live in <code>scripts-data/users.json</code> — added via Admin → Users
+          (admin-only), passwords scrypt-hashed with a random salt.<br><br>
+          <strong>Open mode:</strong> if no users exist yet (<code>UI_PASSWORD</code> was never
+          set), the whole UI runs with <strong>no authentication</strong> — every request is
+          treated as an anonymous admin. A warning prints on every boot while this is active. Set
+          <code>UI_PASSWORD</code> to leave open mode. Failed logins are rate-limited to 20
+          attempts per IP per 15 minutes.
+        </div>
+      </div>
+
+      <!-- Admin & Ops -->
+      <div id="howto-admin" class="howto-panel">
+        <div class="howto-section-title">Backup, Export, Import</div>
+        <table class="howto-table">
+          <tr><th></th><th>Includes</th><th>Who</th></tr>
+          <tr><td><strong>Export</strong></td><td>Script configs only, no token</td><td>any role</td></tr>
+          <tr><td><strong>Import</strong></td><td>Adds git-based scripts from JSON</td><td>Admin, Agent</td></tr>
+          <tr><td><strong>Backup</strong></td><td>Everything incl. tokens, users, audit log — encrypted <code>.dtbackup</code></td><td>Admin only</td></tr>
+        </table>
+        <div class="howto-note">
+          Backup needs <code>WEBHOOK_SECRET</code> set and can only be restored with that <em>same</em>
+          secret later. Restore is a full overwrite — type <code>RESTORE</code> to confirm.
+        </div>
+        <div class="howto-section-title">Self-Update</div>
+        <div class="howto-note">
+          Admin → System → <strong>Check for updates</strong> / <strong>Update</strong>. Zero-downtime
+          swap: builds a new image, starts it alongside the old one, health-checks it, reloads
+          nginx, then stops the old container — auto rolls back if the new one fails its health
+          check.
+        </div>
+        <div class="howto-section-title">Ops tools</div>
+        <ul class="howto-list">
+          <li><strong>SQL-over-VPN test</strong> — run one query through a throwaway VPN-connected
+            container, with MTU diagnostics, before wiring VPN settings into a real script.</li>
+          <li><strong>General VPN test</strong> — verifies actual data movement over the tunnel
+            (byte counters), not just a "connected" log line.</li>
+          <li><strong>Ollama tools</strong> — CPU compatibility check, one-click AMX/AVX2 fix
+            buttons, version pinning, and a version/model compatibility tester.</li>
+          <li><strong>Addons</strong> — one-click Ollama model pulls, plus a Docker Health Check
+            addon that auto-restarts any down compose service every 30 minutes.</li>
+          <li><strong>Audit log</strong> — every config change and admin action, 2000-entry cap,
+            secrets masked. Admin/Agent only.</li>
+        </ul>
+      </div>
     </div>
     <div class="modal-footer">
+      <span style="font-size:11px;color:var(--muted);margin-right:auto">Full reference: <code>CONFIGURATION.md</code> in the repo</span>
       <button class="btn btn-ghost" onclick="closeHowTo()">Close</button>
     </div>
   </div>

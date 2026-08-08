@@ -5,6 +5,8 @@ A self-hosted web dashboard for running and managing Python, Ruby, Node.js, and 
 ![v1.1.0](https://img.shields.io/badge/version-1.1.0-6366f1)
 ![License](https://img.shields.io/badge/license-MIT-22c55e)
 
+📖 **[CONFIGURATION.md](CONFIGURATION.md)** — detailed guide to every feature: per-script settings, roles, webhooks, backups, admin tools, and deployment options.
+
 ---
 
 ## Features
