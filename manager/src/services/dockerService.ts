@@ -3,6 +3,7 @@ import { PassThrough } from 'stream';
 import * as fs from 'fs';
 import { ScriptConfig, ContainerStatus, DEPS_SENTINEL } from '../types';
 import * as logService from './logService';
+import * as heartbeatService from './heartbeatService';
 
 const docker = new Dockerode({ socketPath: '/var/run/docker.sock' });
 
@@ -213,7 +214,7 @@ async function createContainer(config: ScriptConfig, restartPolicy: string): Pro
 
 // ── Log streaming ─────────────────────────────────────────────────────────────
 
-function startLogStream(container: Dockerode.Container, runId: string, scriptName: string): void {
+function startLogStream(container: Dockerode.Container, runId: string, config: ScriptConfig): void {
   container.logs(
     { stdout: true, stderr: true, follow: true, timestamps: true },
     (err: Error | null, stream?: NodeJS.ReadableStream) => {
@@ -232,9 +233,10 @@ function startLogStream(container: Dockerode.Container, runId: string, scriptNam
 
       stream.on('end', async () => {
         try {
-          const c    = docker.getContainer(containerName(scriptName));
+          const c    = docker.getContainer(containerName(config.name));
           const info = await c.inspect();
           logService.finishRun(runId, info.State.ExitCode);
+          heartbeatService.report(config, info.State.ExitCode, runId);
           if (info.State.ExitCode !== 0) {
             try { await c.stop({ t: 5 }); } catch {}
           }
@@ -279,7 +281,7 @@ export async function start(config: ScriptConfig, runId: string, opts?: { forceR
   if (opts?.forceRebuild) invalidateDepsCache(config.name);
   const c = await createContainer(config, 'unless-stopped');
   await c.start();
-  startLogStream(c, runId, config.name);
+  startLogStream(c, runId, config);
 }
 
 export async function stop(name: string, vpnEnabled?: boolean): Promise<void> {
@@ -302,7 +304,7 @@ export async function restart(config: ScriptConfig, runId: string, opts?: { forc
   if (opts?.forceRebuild) invalidateDepsCache(config.name);
   const c = await createContainer(config, 'unless-stopped');
   await c.start();
-  startLogStream(c, runId, config.name);
+  startLogStream(c, runId, config);
 }
 
 export async function runOnce(config: ScriptConfig, runId: string, opts?: { forceRebuild?: boolean }): Promise<{ exitCode: number }> {

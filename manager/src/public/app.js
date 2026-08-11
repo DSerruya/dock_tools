@@ -1340,7 +1340,7 @@ function closeAddModal() {
 }
 
 function resetForm() {
-  ['f-name','f-repo','f-entry','f-schedule','f-buildcmd','f-token','f-vpn-mssfix'].forEach(id => {
+  ['f-name','f-repo','f-entry','f-schedule','f-buildcmd','f-token','f-vpn-mssfix','f-heartbeat-url'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = '';
   });
   document.getElementById('f-branch').value    = 'main';
@@ -1358,6 +1358,7 @@ function resetForm() {
   resetUpdateCheck();
   _pendingVpnFile = null;
   _setVpnUi(false, false, null);
+  _setHeartbeatUi(false);
 
   document.getElementById('source-type-row').style.display = '';
   document.getElementById('st-git').checked = true;
@@ -1453,6 +1454,16 @@ function onVpnToggle() {
   const enabled = document.getElementById('f-vpn-enabled').checked;
   document.getElementById('vpn-toggle-label').textContent = enabled ? 'Enabled' : 'Disabled';
   document.getElementById('vpn-config-area').style.display = enabled ? '' : 'none';
+}
+
+function _setHeartbeatUi(enabled) {
+  document.getElementById('f-heartbeat-enabled').checked = enabled;
+  document.getElementById('heartbeat-toggle-label').textContent = enabled ? 'Enabled' : 'Disabled';
+  document.getElementById('heartbeat-config-area').style.display = enabled ? '' : 'none';
+}
+
+function onHeartbeatToggle() {
+  _setHeartbeatUi(document.getElementById('f-heartbeat-enabled').checked);
 }
 
 function onVpnFileSelected() {
@@ -1588,6 +1599,8 @@ function populateScriptForm(config) {
   document.getElementById('f-schedule').value = config.schedule  || '';
   document.getElementById('f-timezone').value = config.timezone  || 'UTC';
   document.getElementById('f-vpn-mssfix').value = config.vpnMssFix || '';
+  document.getElementById('f-heartbeat-url').value = config.heartbeatUrl || '';
+  _setHeartbeatUi(!!config.heartbeatEnabled);
 
   document.getElementById('env-rows').innerHTML = '';
   cancelEnvPaste();
@@ -1723,6 +1736,8 @@ function collectScriptFormBody() {
 
   const vpnEnabled = document.getElementById('f-vpn-enabled').checked;
   const vpnMssFix  = document.getElementById('f-vpn-mssfix').value.trim();
+  const heartbeatEnabled = document.getElementById('f-heartbeat-enabled').checked;
+  const heartbeatUrl     = document.getElementById('f-heartbeat-url').value.trim();
   const body = { language: lang, sourceType, entryPoint: entry, runMode, env, vpnEnabled };
   if (sourceType === 'git') {
     body.repo   = repo;
@@ -1735,18 +1750,22 @@ function collectScriptFormBody() {
   body.schedule  = runMode === 'scheduled' ? sched : '';
   body.timezone  = tz;
   body.vpnMssFix = vpnMssFix;             // empty string clears it on edit
-  return { body, entry, repo, sourceType, runMode, sched, vpnMssFix };
+  body.heartbeatEnabled = heartbeatEnabled;
+  body.heartbeatUrl     = heartbeatUrl;   // empty string clears it on edit
+  return { body, entry, repo, sourceType, runMode, sched, vpnMssFix, heartbeatEnabled, heartbeatUrl };
 }
 
 async function submitAdd() {
   const name = document.getElementById('f-name').value.trim();
-  const { body, entry, repo, sourceType, runMode, sched, vpnMssFix } = collectScriptFormBody();
+  const { body, entry, repo, sourceType, runMode, sched, vpnMssFix, heartbeatEnabled, heartbeatUrl } = collectScriptFormBody();
 
   if (!name || !entry) { toast('Name and entry point are required', 'error'); return; }
   if (sourceType === 'git' && !repo) { toast('Repo URL is required', 'error'); return; }
   if (sourceType === 'upload' && !_pendingArchiveFile) { toast('Choose a .tar.gz/.tgz archive to upload', 'error'); return; }
   if (runMode === 'scheduled' && !sched) { toast('Cron expression required for scheduled mode', 'error'); return; }
   if (vpnMssFix && !/^\d+$/.test(vpnMssFix)) { toast('mssfix must be digits only (e.g. 1360)', 'error'); return; }
+  if (heartbeatEnabled && !heartbeatUrl) { toast('Heartbeat URL is required when heartbeat monitoring is enabled', 'error'); return; }
+  if (heartbeatUrl && !/^https?:\/\//i.test(heartbeatUrl)) { toast('Heartbeat URL must start with http:// or https://', 'error'); return; }
 
   try {
     await api('POST', '/api/scripts', { name, ...body });
@@ -1776,12 +1795,14 @@ async function submitAdd() {
 }
 
 async function submitEdit() {
-  const { body, entry, repo, sourceType, runMode, sched, vpnMssFix } = collectScriptFormBody();
+  const { body, entry, repo, sourceType, runMode, sched, vpnMssFix, heartbeatEnabled, heartbeatUrl } = collectScriptFormBody();
 
   if (!entry) { toast('Entry point is required', 'error'); return; }
   if (sourceType === 'git' && !repo) { toast('Repo URL is required', 'error'); return; }
   if (runMode === 'scheduled' && !sched) { toast('Cron expression required for scheduled mode', 'error'); return; }
   if (vpnMssFix && !/^\d+$/.test(vpnMssFix)) { toast('mssfix must be digits only (e.g. 1360)', 'error'); return; }
+  if (heartbeatEnabled && !heartbeatUrl) { toast('Heartbeat URL is required when heartbeat monitoring is enabled', 'error'); return; }
+  if (heartbeatUrl && !/^https?:\/\//i.test(heartbeatUrl)) { toast('Heartbeat URL must start with http:// or https://', 'error'); return; }
 
   try {
     const result = await api('PUT', `/api/scripts/${encodeURIComponent(editingScriptName)}`, body);

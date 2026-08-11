@@ -13,6 +13,7 @@ features (auth, webhooks, backups), and deployment/infra configuration. For a qu
   - [Port](#port)
   - [Environment variables](#environment-variables)
   - [VPN (OpenVPN sidecar)](#vpn-openvpn-sidecar)
+  - [Heartbeat monitoring](#heartbeat-monitoring)
   - [Private repos (GitHub token)](#private-repos-github-token)
 - [Upload-based scripts (no git)](#upload-based-scripts-no-git)
 - [Webhooks (auto-sync on push)](#webhooks-auto-sync-on-push)
@@ -114,6 +115,22 @@ PMTU cache never populates and `iptables --clamp-mss-to-pmtu` can't help either)
 [MTU-VPN-DEBUGGING-PLAYBOOK.md](MTU-VPN-DEBUGGING-PLAYBOOK.md) for how to diagnose the right value,
 or use the Admin → SQL-over-VPN test tool ([below](#admin-ops-tools)) to test one against a real
 query before committing it to a production script.
+
+### Heartbeat monitoring
+
+Toggle **Heartbeat Monitoring** and set a **Heartbeat URL** to have the manager send a `GET`
+request to that URL after every run that exits successfully (exit code `0`) — the "dead man's
+switch" pattern used by monitors such as Zenduty and Xurrent's heartbeat check-ins.
+
+- **On success** — the URL is pinged.
+- **On failure** — nothing is sent. The whole point of this pattern is that the monitor's own
+  missed-heartbeat timeout is what raises the alert; the manager reporting the failure itself
+  would be redundant and could race a monitor that's already down.
+
+Applies to both run modes: a Persistent script is pinged if/when its container exits `0`; a
+Scheduled script is pinged after each successful cron tick or **Run Now**. Heartbeat URL is
+required while the toggle is on, and must be `http://` or `https://`. Ping failures (timeout,
+non-2xx, DNS) are logged to the script's run log and the manager's console but never fail the run.
 
 ### Private repos (GitHub token)
 

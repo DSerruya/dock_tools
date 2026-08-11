@@ -10,6 +10,7 @@ import * as archiveService from '../services/archiveService';
 import * as cronService   from '../services/cronService';
 import * as logService    from '../services/logService';
 import * as auditService  from '../services/auditService';
+import * as heartbeatService from '../services/heartbeatService';
 import { getUser }        from '../utils/getUser';
 import { requireRole }    from '../middleware/auth';
 import { ScriptConfig }   from '../types';
@@ -18,6 +19,7 @@ import {
   validateRepo,
   validateShellCommand,
   validateEnvKeys,
+  validateHeartbeatUrl,
 } from '../utils/validation';
 
 const router  = Router();
@@ -55,6 +57,10 @@ function validateScriptFields(body: Partial<ScriptConfig>): string | null {
     const err = validateEnvKeys(body.env);
     if (err) return err;
   }
+  if (body.heartbeatUrl) {
+    const err = validateHeartbeatUrl(body.heartbeatUrl);
+    if (err) return err;
+  }
   return null;
 }
 
@@ -87,6 +93,8 @@ router.post('/', requireRole('admin', 'agent'), async (req, res) => {
     return res.status(400).json({ error: 'Invalid cron expression' });
   if (body.vpnMssFix && !/^\d+$/.test(body.vpnMssFix))
     return res.status(400).json({ error: 'vpnMssFix must be digits only (e.g. 1360)' });
+  if (body.heartbeatEnabled && !body.heartbeatUrl)
+    return res.status(400).json({ error: 'heartbeatUrl is required when heartbeat monitoring is enabled' });
 
   const validationError = validateScriptFields(body);
   if (validationError) return res.status(400).json({ error: validationError });
@@ -108,6 +116,8 @@ router.post('/', requireRole('admin', 'agent'), async (req, res) => {
     timezone:     body.timezone,
     vpnEnabled:   body.vpnEnabled   || undefined,
     vpnMssFix:    body.vpnMssFix    || undefined,
+    heartbeatEnabled: body.heartbeatEnabled || undefined,
+    heartbeatUrl:     body.heartbeatUrl     || undefined,
     createdAt:    new Date().toISOString(),
   };
 
@@ -146,6 +156,12 @@ router.put('/:name', requireRole('admin', 'agent'), async (req, res) => {
     return res.status(400).json({ error: 'Invalid cron expression' });
   if (body.vpnMssFix && !/^\d+$/.test(body.vpnMssFix))
     return res.status(400).json({ error: 'vpnMssFix must be digits only (e.g. 1360)' });
+  {
+    const heartbeatEnabled = body.heartbeatEnabled !== undefined ? body.heartbeatEnabled : config.heartbeatEnabled;
+    const heartbeatUrl     = body.heartbeatUrl     !== undefined ? body.heartbeatUrl     : config.heartbeatUrl;
+    if (heartbeatEnabled && !heartbeatUrl)
+      return res.status(400).json({ error: 'heartbeatUrl is required when heartbeat monitoring is enabled' });
+  }
 
   const validationError = validateScriptFields(body);
   if (validationError) return res.status(400).json({ error: validationError });
@@ -174,6 +190,8 @@ router.put('/:name', requireRole('admin', 'agent'), async (req, res) => {
     timezone:     body.timezone      !== undefined ? (body.timezone      || undefined) : config.timezone,
     vpnEnabled:   body.vpnEnabled    !== undefined ?  body.vpnEnabled                  : config.vpnEnabled,
     vpnMssFix:    body.vpnMssFix     !== undefined ? (body.vpnMssFix     || undefined) : config.vpnMssFix,
+    heartbeatEnabled: body.heartbeatEnabled !== undefined ?  body.heartbeatEnabled                 : config.heartbeatEnabled,
+    heartbeatUrl:     body.heartbeatUrl     !== undefined ? (body.heartbeatUrl     || undefined)    : config.heartbeatUrl,
   };
 
   const changes = auditService.diffConfigs(config, updated);
@@ -358,6 +376,7 @@ router.post('/:name/run-now', requireRole('admin', 'agent'), async (req, res) =>
     try {
       const result = await dockerService.runOnce(config, runId);
       logService.finishRun(runId, result.exitCode);
+      heartbeatService.report(config, result.exitCode, runId);
       configService.save({ ...config, lastRun: new Date().toISOString() });
     } catch (err: any) {
       logService.markRunFailed(runId, err.message);
@@ -398,6 +417,7 @@ router.post('/:name/update-deps', requireRole('admin', 'agent'), async (req, res
         try {
           const result = await dockerService.runOnce(config, runId, { forceRebuild: true });
           logService.finishRun(runId, result.exitCode);
+          heartbeatService.report(config, result.exitCode, runId);
           configService.save({ ...config, lastRun: new Date().toISOString() });
         } catch (err: any) {
           logService.markRunFailed(runId, err.message);

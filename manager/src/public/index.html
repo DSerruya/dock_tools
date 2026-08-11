@@ -1029,6 +1029,24 @@
         </div>
       </div>
       <div class="form-group">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+          <label style="margin-bottom:0">Heartbeat Monitoring</label>
+          <label class="toggle-switch" title="Ping a monitoring URL after every successful run">
+            <input type="checkbox" id="f-heartbeat-enabled" onchange="onHeartbeatToggle()" />
+            <span class="toggle-slider"></span>
+          </label>
+          <span style="font-size:11px;color:var(--muted)" id="heartbeat-toggle-label">Disabled</span>
+        </div>
+        <div id="heartbeat-config-area" style="display:none;margin-top:8px;padding:10px 12px;background:var(--surface2);border-radius:6px;border:1px solid var(--border)">
+          <label style="font-size:12px">Heartbeat URL *</label>
+          <input id="f-heartbeat-url" type="text" placeholder="https://zenduty.com/heartbeat/xxxxxxxx/" style="width:100%;margin-top:4px" />
+          <div style="font-size:11px;color:var(--muted);margin-top:6px">
+            Pinged with a GET request after every run that exits successfully. A failed run is never pinged — your
+            monitor's own missed-heartbeat alert (e.g. Zenduty/Xurrent heartbeat check-ins) is what should catch that.
+          </div>
+        </div>
+      </div>
+      <div class="form-group">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
           <label style="margin-bottom:0">Environment Variables</label>
           <div style="display:flex;gap:6px">
@@ -1293,6 +1311,7 @@
         <button class="howto-tab"        onclick="showHowToTab('typescript')">🔷 TypeScript</button>
         <button class="howto-tab"        onclick="showHowToTab('advanced')">⚙️ Advanced</button>
         <button class="howto-tab"        onclick="showHowToTab('vpn')">🔒 VPN</button>
+        <button class="howto-tab"        onclick="showHowToTab('heartbeat')">💓 Heartbeat</button>
         <button class="howto-tab"        onclick="showHowToTab('upload')">📦 Upload Code</button>
         <button class="howto-tab"        onclick="showHowToTab('webhook')">🔗 Webhooks</button>
         <button class="howto-tab"        onclick="showHowToTab('roles')">👥 Roles</button>
@@ -1453,6 +1472,20 @@
           (it depends on a PMTU cache that never populates). Use Admin → SQL-over-VPN test to find
           the right value against a real query before setting it here — see
           <code>MTU-VPN-DEBUGGING-PLAYBOOK.md</code> in the repo for the full diagnosis story.
+        </div>
+      </div>
+
+      <!-- Heartbeat -->
+      <div id="howto-heartbeat" class="howto-panel">
+        <div class="howto-note">
+          Toggle <strong>Heartbeat Monitoring</strong> and set a <strong>Heartbeat URL</strong> to have the
+          manager send a GET request to that URL every time this script's run exits successfully — the
+          "dead man's switch" pattern used by monitors like Zenduty and Xurrent's heartbeat check-ins.<br><br>
+          <strong>On success:</strong> ping sent. <strong>On failure:</strong> nothing is sent — the monitor
+          is expected to alert on its own once a heartbeat is overdue, so a missing ping is the actual
+          failure signal, not something this app reports directly.<br><br>
+          Works for both Persistent (pinged if/when the container exits 0) and Scheduled (pinged after each
+          successful tick or Run Now) scripts.
         </div>
       </div>
 

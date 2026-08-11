@@ -11,6 +11,9 @@ const REPO_RE = /^https?:\/\/.+|^git@.+/;
 // Env variable names must be valid POSIX identifiers
 const ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
+// Heartbeat monitor URL (e.g. a Zenduty/Xurrent heartbeat check-in link)
+const HEARTBEAT_URL_RE = /^https?:\/\/.+/;
+
 export function validateLanguage(lang: string): string | null {
   if (!ALLOWED_LANGUAGES.has(lang))
     return `language must be one of: ${[...ALLOWED_LANGUAGES].join(', ')}`;
@@ -34,5 +37,11 @@ export function validateEnvKeys(env: Record<string, string>): string | null {
     if (!ENV_KEY_RE.test(key))
       return `env key "${key}" is invalid; keys must match [A-Za-z_][A-Za-z0-9_]*`;
   }
+  return null;
+}
+
+export function validateHeartbeatUrl(url: string): string | null {
+  if (!HEARTBEAT_URL_RE.test(url))
+    return 'heartbeatUrl must be a valid http:// or https:// URL';
   return null;
 }

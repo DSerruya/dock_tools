@@ -35,6 +35,10 @@ export interface ScriptConfig {
   vpnEnabled?: boolean;
   vpnMssFix?: string;      // digits only, e.g. "1360" — OpenVPN --mssfix for this script's VPN sidecar,
                            // works around Path-MTU-Discovery blackholes on the tunnel (see MTU-VPN-DEBUGGING-PLAYBOOK.md)
+  heartbeatEnabled?: boolean;
+  heartbeatUrl?: string;   // dead-man's-switch monitor URL (e.g. Zenduty/Xurrent heartbeat check-in) —
+                           // pinged (GET) after every run that exits 0; a failed run is never pinged, so
+                           // the monitor's own missed-heartbeat timeout is what raises the alert
 }
 
 export interface ScriptStatus {

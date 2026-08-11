@@ -4,6 +4,7 @@ import { ScriptConfig } from '../types';
 import * as dockerService from './dockerService';
 import * as configService from './configService';
 import * as logService from './logService';
+import * as heartbeatService from './heartbeatService';
 
 const jobs = new Map<string, nodeCron.ScheduledTask>();
 const running = new Set<string>();
@@ -37,6 +38,7 @@ async function executeScript(config: ScriptConfig): Promise<void> {
     console.log(`[cron] Starting ${config.name} (runId: ${runId})`);
     const result = await dockerService.runOnce(config, runId);
     logService.finishRun(runId, result.exitCode);
+    heartbeatService.report(config, result.exitCode, runId);
     const saved = configService.get(config.name);
     if (saved) configService.save({ ...saved, lastRun: new Date().toISOString() });
     console.log(`[cron] ${config.name} exited with code ${result.exitCode}`);
