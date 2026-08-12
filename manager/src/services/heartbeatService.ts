@@ -12,6 +12,28 @@ export function report(config: ScriptConfig, exitCode: number, runId?: string): 
   void ping(config.name, config.heartbeatUrl, runId);
 }
 
+// A persistent script is expected to keep running indefinitely, so it may never hit the on-exit
+// report() above during normal operation. This repeats the same ping on a fixed interval for as
+// long as the container stays up, keyed by script name so a restart cleanly replaces the timer.
+const periodicTimers = new Map<string, NodeJS.Timeout>();
+
+export function startPeriodic(config: ScriptConfig): void {
+  stopPeriodic(config.name);
+  if (!config.heartbeatEnabled || !config.heartbeatUrl || !config.heartbeatIntervalSec) return;
+  const url = config.heartbeatUrl;
+  const timer = setInterval(() => {
+    void ping(config.name, url, logService.findRunningRun(config.name)?.runId);
+  }, config.heartbeatIntervalSec * 1000);
+  periodicTimers.set(config.name, timer);
+}
+
+export function stopPeriodic(name: string): void {
+  const timer = periodicTimers.get(name);
+  if (!timer) return;
+  clearInterval(timer);
+  periodicTimers.delete(name);
+}
+
 async function ping(scriptName: string, url: string, runId?: string): Promise<void> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);

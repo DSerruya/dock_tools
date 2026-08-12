@@ -1044,6 +1044,15 @@
             Pinged with a GET request after every run that exits successfully. A failed run is never pinged — your
             monitor's own missed-heartbeat alert (e.g. Zenduty/Xurrent heartbeat check-ins) is what should catch that.
           </div>
+          <div id="heartbeat-interval-row" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
+            <label style="margin-bottom:0;font-size:12px;white-space:nowrap">Also ping every</label>
+            <input id="f-heartbeat-interval" type="number" min="30" step="1" placeholder="300" style="width:90px;padding:4px 8px;font-size:12px" />
+            <label style="margin-bottom:0;font-size:12px;white-space:nowrap">seconds while running</label>
+            <span style="font-size:11px;color:var(--muted);width:100%">
+              Persistent scripts don't naturally exit, so the ping above may never fire — set this to also ping on a
+              repeating timer for as long as the container stays up. Minimum 30s. Leave blank to disable.
+            </span>
+          </div>
         </div>
       </div>
       <div class="form-group">
@@ -1485,7 +1494,10 @@
           is expected to alert on its own once a heartbeat is overdue, so a missing ping is the actual
           failure signal, not something this app reports directly.<br><br>
           Works for both Persistent (pinged if/when the container exits 0) and Scheduled (pinged after each
-          successful tick or Run Now) scripts.
+          successful tick or Run Now) scripts.<br><br>
+          Persistent scripts usually don't exit on their own, so that on-exit ping alone may never fire. Set
+          <strong>"Also ping every N seconds while running"</strong> to add a repeating ping on top — it starts
+          when the container starts and stops as soon as it's stopped or exits.
         </div>
       </div>
 

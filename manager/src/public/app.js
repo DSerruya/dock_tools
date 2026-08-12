@@ -1340,7 +1340,7 @@ function closeAddModal() {
 }
 
 function resetForm() {
-  ['f-name','f-repo','f-entry','f-schedule','f-buildcmd','f-token','f-vpn-mssfix','f-heartbeat-url'].forEach(id => {
+  ['f-name','f-repo','f-entry','f-schedule','f-buildcmd','f-token','f-vpn-mssfix','f-heartbeat-url','f-heartbeat-interval'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = '';
   });
   document.getElementById('f-branch').value    = 'main';
@@ -1600,6 +1600,7 @@ function populateScriptForm(config) {
   document.getElementById('f-timezone').value = config.timezone  || 'UTC';
   document.getElementById('f-vpn-mssfix').value = config.vpnMssFix || '';
   document.getElementById('f-heartbeat-url').value = config.heartbeatUrl || '';
+  document.getElementById('f-heartbeat-interval').value = config.heartbeatIntervalSec || '';
   _setHeartbeatUi(!!config.heartbeatEnabled);
 
   document.getElementById('env-rows').innerHTML = '';
@@ -1638,6 +1639,7 @@ function toggleRunMode() {
   const isScheduled = document.getElementById('rm-scheduled').checked;
   document.getElementById('persistent-fields').style.display = isScheduled ? 'none' : '';
   document.getElementById('scheduled-fields').style.display  = isScheduled ? '' : 'none';
+  document.getElementById('heartbeat-interval-row').style.display = isScheduled ? 'none' : '';
 }
 
 document.querySelectorAll('input[name="run-mode"]').forEach(r => r.addEventListener('change', toggleRunMode));
@@ -1738,6 +1740,8 @@ function collectScriptFormBody() {
   const vpnMssFix  = document.getElementById('f-vpn-mssfix').value.trim();
   const heartbeatEnabled = document.getElementById('f-heartbeat-enabled').checked;
   const heartbeatUrl     = document.getElementById('f-heartbeat-url').value.trim();
+  const heartbeatIntervalRaw = document.getElementById('f-heartbeat-interval').value.trim();
+  const heartbeatIntervalSec = heartbeatIntervalRaw ? parseInt(heartbeatIntervalRaw, 10) : null;
   const body = { language: lang, sourceType, entryPoint: entry, runMode, env, vpnEnabled };
   if (sourceType === 'git') {
     body.repo   = repo;
@@ -1752,12 +1756,15 @@ function collectScriptFormBody() {
   body.vpnMssFix = vpnMssFix;             // empty string clears it on edit
   body.heartbeatEnabled = heartbeatEnabled;
   body.heartbeatUrl     = heartbeatUrl;   // empty string clears it on edit
-  return { body, entry, repo, sourceType, runMode, sched, vpnMssFix, heartbeatEnabled, heartbeatUrl };
+  // Only meaningful for persistent scripts — null clears it (also clears on edit) rather than
+  // leaving a stray interval behind when switching a script to scheduled mode.
+  body.heartbeatIntervalSec = runMode === 'persistent' ? heartbeatIntervalSec : null;
+  return { body, entry, repo, sourceType, runMode, sched, vpnMssFix, heartbeatEnabled, heartbeatUrl, heartbeatIntervalSec };
 }
 
 async function submitAdd() {
   const name = document.getElementById('f-name').value.trim();
-  const { body, entry, repo, sourceType, runMode, sched, vpnMssFix, heartbeatEnabled, heartbeatUrl } = collectScriptFormBody();
+  const { body, entry, repo, sourceType, runMode, sched, vpnMssFix, heartbeatEnabled, heartbeatUrl, heartbeatIntervalSec } = collectScriptFormBody();
 
   if (!name || !entry) { toast('Name and entry point are required', 'error'); return; }
   if (sourceType === 'git' && !repo) { toast('Repo URL is required', 'error'); return; }
@@ -1766,6 +1773,7 @@ async function submitAdd() {
   if (vpnMssFix && !/^\d+$/.test(vpnMssFix)) { toast('mssfix must be digits only (e.g. 1360)', 'error'); return; }
   if (heartbeatEnabled && !heartbeatUrl) { toast('Heartbeat URL is required when heartbeat monitoring is enabled', 'error'); return; }
   if (heartbeatUrl && !/^https?:\/\//i.test(heartbeatUrl)) { toast('Heartbeat URL must start with http:// or https://', 'error'); return; }
+  if (heartbeatIntervalSec !== null && (!Number.isInteger(heartbeatIntervalSec) || heartbeatIntervalSec < 30)) { toast('Heartbeat interval must be a whole number of seconds, at least 30', 'error'); return; }
 
   try {
     await api('POST', '/api/scripts', { name, ...body });
@@ -1795,7 +1803,7 @@ async function submitAdd() {
 }
 
 async function submitEdit() {
-  const { body, entry, repo, sourceType, runMode, sched, vpnMssFix, heartbeatEnabled, heartbeatUrl } = collectScriptFormBody();
+  const { body, entry, repo, sourceType, runMode, sched, vpnMssFix, heartbeatEnabled, heartbeatUrl, heartbeatIntervalSec } = collectScriptFormBody();
 
   if (!entry) { toast('Entry point is required', 'error'); return; }
   if (sourceType === 'git' && !repo) { toast('Repo URL is required', 'error'); return; }
@@ -1803,6 +1811,7 @@ async function submitEdit() {
   if (vpnMssFix && !/^\d+$/.test(vpnMssFix)) { toast('mssfix must be digits only (e.g. 1360)', 'error'); return; }
   if (heartbeatEnabled && !heartbeatUrl) { toast('Heartbeat URL is required when heartbeat monitoring is enabled', 'error'); return; }
   if (heartbeatUrl && !/^https?:\/\//i.test(heartbeatUrl)) { toast('Heartbeat URL must start with http:// or https://', 'error'); return; }
+  if (heartbeatIntervalSec !== null && (!Number.isInteger(heartbeatIntervalSec) || heartbeatIntervalSec < 30)) { toast('Heartbeat interval must be a whole number of seconds, at least 30', 'error'); return; }
 
   try {
     const result = await api('PUT', `/api/scripts/${encodeURIComponent(editingScriptName)}`, body);

@@ -232,6 +232,7 @@ function startLogStream(container: Dockerode.Container, runId: string, config: S
       stderr.on('data', write);
 
       stream.on('end', async () => {
+        heartbeatService.stopPeriodic(config.name);
         try {
           const c    = docker.getContainer(containerName(config.name));
           const info = await c.inspect();
@@ -282,9 +283,11 @@ export async function start(config: ScriptConfig, runId: string, opts?: { forceR
   const c = await createContainer(config, 'unless-stopped');
   await c.start();
   startLogStream(c, runId, config);
+  heartbeatService.startPeriodic(config);
 }
 
 export async function stop(name: string, vpnEnabled?: boolean): Promise<void> {
+  heartbeatService.stopPeriodic(name);
   const c = await getContainer(name);
   if (c) {
     try { const i = await c.inspect(); if (i.State.Running) await c.stop({ t: 10 }); } catch {}
@@ -305,6 +308,7 @@ export async function restart(config: ScriptConfig, runId: string, opts?: { forc
   const c = await createContainer(config, 'unless-stopped');
   await c.start();
   startLogStream(c, runId, config);
+  heartbeatService.startPeriodic(config);
 }
 
 export async function runOnce(config: ScriptConfig, runId: string, opts?: { forceRebuild?: boolean }): Promise<{ exitCode: number }> {
@@ -327,6 +331,7 @@ export async function runOnce(config: ScriptConfig, runId: string, opts?: { forc
 }
 
 export async function removeContainer(name: string, vpnEnabled?: boolean): Promise<void> {
+  heartbeatService.stopPeriodic(name);
   await removeIfExists(name);
   if (vpnEnabled) await stopVpnSidecar(name);
 }

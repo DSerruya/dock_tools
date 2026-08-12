@@ -45,3 +45,11 @@ export function validateHeartbeatUrl(url: string): string | null {
     return 'heartbeatUrl must be a valid http:// or https:// URL';
   return null;
 }
+
+const MIN_HEARTBEAT_INTERVAL_SEC = 30;
+
+export function validateHeartbeatInterval(sec: number): string | null {
+  if (!Number.isInteger(sec) || sec < MIN_HEARTBEAT_INTERVAL_SEC)
+    return `heartbeatIntervalSec must be an integer of at least ${MIN_HEARTBEAT_INTERVAL_SEC} seconds`;
+  return null;
+}

@@ -20,6 +20,7 @@ import {
   validateShellCommand,
   validateEnvKeys,
   validateHeartbeatUrl,
+  validateHeartbeatInterval,
 } from '../utils/validation';
 
 const router  = Router();
@@ -59,6 +60,10 @@ function validateScriptFields(body: Partial<ScriptConfig>): string | null {
   }
   if (body.heartbeatUrl) {
     const err = validateHeartbeatUrl(body.heartbeatUrl);
+    if (err) return err;
+  }
+  if (body.heartbeatIntervalSec) {
+    const err = validateHeartbeatInterval(body.heartbeatIntervalSec);
     if (err) return err;
   }
   return null;
@@ -118,6 +123,7 @@ router.post('/', requireRole('admin', 'agent'), async (req, res) => {
     vpnMssFix:    body.vpnMssFix    || undefined,
     heartbeatEnabled: body.heartbeatEnabled || undefined,
     heartbeatUrl:     body.heartbeatUrl     || undefined,
+    heartbeatIntervalSec: body.heartbeatIntervalSec || undefined,
     createdAt:    new Date().toISOString(),
   };
 
@@ -192,6 +198,7 @@ router.put('/:name', requireRole('admin', 'agent'), async (req, res) => {
     vpnMssFix:    body.vpnMssFix     !== undefined ? (body.vpnMssFix     || undefined) : config.vpnMssFix,
     heartbeatEnabled: body.heartbeatEnabled !== undefined ?  body.heartbeatEnabled                 : config.heartbeatEnabled,
     heartbeatUrl:     body.heartbeatUrl     !== undefined ? (body.heartbeatUrl     || undefined)    : config.heartbeatUrl,
+    heartbeatIntervalSec: body.heartbeatIntervalSec !== undefined ? (body.heartbeatIntervalSec || undefined) : config.heartbeatIntervalSec,
   };
 
   const changes = auditService.diffConfigs(config, updated);

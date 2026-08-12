@@ -39,6 +39,9 @@ export interface ScriptConfig {
   heartbeatUrl?: string;   // dead-man's-switch monitor URL (e.g. Zenduty/Xurrent heartbeat check-in) —
                            // pinged (GET) after every run that exits 0; a failed run is never pinged, so
                            // the monitor's own missed-heartbeat timeout is what raises the alert
+  heartbeatIntervalSec?: number; // persistent scripts only: also ping every N seconds while the
+                           // container stays running, since a long-lived process may never exit
+                           // on its own to trigger the on-exit ping above (min 30s)
 }
 
 export interface ScriptStatus {
