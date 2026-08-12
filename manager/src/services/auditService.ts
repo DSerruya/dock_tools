@@ -60,6 +60,7 @@ export function list(scriptName?: string): AuditEntry[] {
 const TRACKED_FIELDS: (keyof ScriptConfig)[] = [
   'sourceType', 'repo', 'branch', 'entryPoint', 'buildCommand', 'preserveEnv', 'runMode',
   'schedule', 'timezone', 'port', 'env', 'language', 'repoToken',
+  'vpnEnabled', 'vpnMssFix', 'heartbeatEnabled', 'heartbeatUrl',
 ];
 
 // Fields whose values are masked or redacted in audit records
