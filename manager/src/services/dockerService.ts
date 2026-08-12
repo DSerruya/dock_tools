@@ -170,13 +170,23 @@ async function createContainer(config: ScriptConfig, restartPolicy: string): Pro
     ? `${hostRepoPath(config.name)}:/app`
     : `${hostRepoPath(config.name)}:/app:ro`;
 
+  // Ruby's default `bundle install`/`gem install` (no --path) writes to the base image's
+  // GEM_HOME (/usr/local/bundle) — container-local, not the /app bind mount — so it's wiped
+  // every time the container is recreated (which happens on nearly every lifecycle action, not
+  // just code changes). preserveEnv's sentinel lives in /app and survives that, so it would
+  // otherwise skip a reinstall the container actually still needs. Redirect gems into /app so
+  // they persist the same way node_modules already does; only when a build step runs at all.
+  const defaultEnv = config.language === 'ruby' && config.buildCommand
+    ? ['GEM_HOME=/app/.gems', 'BUNDLE_PATH=/app/.gems']
+    : [];
+
   // Only the repo bind-mount is allowed — no extra binds, no host socket access
   const opts: Dockerode.ContainerCreateOptions = {
     name: containerName(config.name),
     Image: image,
     Cmd: cmd,
     WorkingDir: '/app',
-    Env: Object.entries(config.env || {}).map(([k, v]) => `${k}=${v}`),
+    Env: [...defaultEnv, ...Object.entries(config.env || {}).map(([k, v]) => `${k}=${v}`)],
     HostConfig: {
       Binds:         [bindMount],
       RestartPolicy: { Name: restartPolicy },
