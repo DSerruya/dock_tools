@@ -176,8 +176,13 @@ async function createContainer(config: ScriptConfig, restartPolicy: string): Pro
   // just code changes). preserveEnv's sentinel lives in /app and survives that, so it would
   // otherwise skip a reinstall the container actually still needs. Redirect gems into /app so
   // they persist the same way node_modules already does; only when a build step runs at all.
+  // GEM_HOME only, deliberately no BUNDLE_PATH: setting BUNDLE_PATH switches Bundler into its
+  // "vendored" install mode, nesting gems under a Bundler-specific ruby/<abi>/ layout that's only
+  // visible via `bundle exec`/`require 'bundler/setup'`, not a plain `require`. Leaving BUNDLE_PATH
+  // unset keeps Bundler's "global install" mode — flat RubyGems layout under GEM_HOME — which is
+  // exactly what a plain `require` already knows how to resolve.
   const defaultEnv = config.language === 'ruby' && config.buildCommand
-    ? ['GEM_HOME=/app/.gems', 'BUNDLE_PATH=/app/.gems']
+    ? ['GEM_HOME=/app/.gems']
     : [];
 
   // Only the repo bind-mount is allowed — no extra binds, no host socket access
