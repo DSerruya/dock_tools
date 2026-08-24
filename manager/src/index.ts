@@ -14,6 +14,7 @@ import * as configService from './services/configService';
 import * as cronService   from './services/cronService';
 import * as logService    from './services/logService';
 import * as userService   from './services/userService';
+import * as uiHealthCheckService from './services/uiHealthCheckService';
 
 const app  = express();
 const PORT = parseInt(process.env.PORT || '3000');
@@ -89,4 +90,5 @@ app.listen(PORT, async () => {
   logService.recoverStaleRuns();
   const configs = configService.loadAll();
   cronService.initAll(configs);
+  uiHealthCheckService.init();
 });

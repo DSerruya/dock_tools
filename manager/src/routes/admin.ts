@@ -8,6 +8,7 @@ import multer      from 'multer';
 import simpleGit   from 'simple-git';
 import * as userService  from '../services/userService';
 import * as auditService from '../services/auditService';
+import * as uiHealthCheckService from '../services/uiHealthCheckService';
 import { requireRole }   from '../middleware/auth';
 import { getUser }       from '../utils/getUser';
 
@@ -1038,6 +1039,43 @@ router.get('/system/resources', async (_req, res) => {
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// ── UI Health Check (nginx watchdog) ──────────────────────────────────────────
+//
+// Periodically pings nginx (the reverse proxy the browser actually talks to, not the
+// manager directly) and restarts the script-nginx container if it fails to respond.
+
+// GET /api/admin/ui-health-check
+router.get('/ui-health-check', (_req, res) => {
+  res.json({
+    settings: uiHealthCheckService.getSettings(),
+    status:   uiHealthCheckService.getStatus(),
+  });
+});
+
+// POST /api/admin/ui-health-check/settings  body: { enabled, intervalMinutes }
+router.post('/ui-health-check/settings', (req, res) => {
+  const { enabled, intervalMinutes } = req.body || {};
+  if (typeof enabled !== 'boolean')
+    return res.status(400).json({ error: 'enabled must be a boolean' });
+  const minutes = Number(intervalMinutes);
+  if (!Number.isInteger(minutes) || minutes < 1 || minutes > 1440)
+    return res.status(400).json({ error: 'intervalMinutes must be a whole number between 1 and 1440' });
+
+  const before  = uiHealthCheckService.getSettings();
+  const updated = uiHealthCheckService.saveSettings({ enabled, intervalMinutes: minutes });
+  auditService.record(getUser(req), 'admin.ui_health_check.updated', '-', [
+    { field: 'enabled',         oldValue: before.enabled,         newValue: updated.enabled },
+    { field: 'intervalMinutes', oldValue: before.intervalMinutes, newValue: updated.intervalMinutes },
+  ]);
+  res.json({ settings: updated, status: uiHealthCheckService.getStatus() });
+});
+
+// POST /api/admin/ui-health-check/run — manual "Check Now", shares logic with the periodic timer
+router.post('/ui-health-check/run', async (_req, res) => {
+  const status = await uiHealthCheckService.runCheck();
+  res.json({ status });
 });
 
 // ── Ollama reset all env flags ────────────────────────────────────────────────

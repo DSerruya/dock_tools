@@ -89,7 +89,7 @@ function showTab(tab) {
   if (tab === 'scripts')    loadScripts();
   else if (tab === 'logs')  loadLogs();
   else if (tab === 'audit') loadAudit();
-  else if (tab === 'admin') { loadUsers(); loadSystemVersion(); loadAddons(); loadResources(); ovLoad(); }
+  else if (tab === 'admin') { loadUsers(); loadSystemVersion(); loadAddons(); loadResources(); ovLoad(); uhcInit(); }
   else if (tab === 'tests') { vtInit(); avpnInit(); sqltInit(); }
 }
 
@@ -2040,6 +2040,76 @@ async function loadResources() {
   }
 }
 
+/* ── UI Health Check (nginx watchdog) ────────────────────────────────────── */
+
+let uhcInitialized = false;
+
+async function uhcInit() {
+  if (uhcInitialized) { uhcRefreshStatus(); return; }
+  uhcInitialized = true;
+  try {
+    const d = await api('GET', '/api/admin/ui-health-check');
+    document.getElementById('uhc-enabled').checked  = d.settings.enabled;
+    document.getElementById('uhc-interval').value   = d.settings.intervalMinutes;
+    uhcRenderStatus(d.status);
+  } catch (e) { console.warn('uhcInit:', e.message); }
+}
+
+async function uhcRefreshStatus() {
+  try {
+    const d = await api('GET', '/api/admin/ui-health-check');
+    uhcRenderStatus(d.status);
+  } catch { /* admin tab may not be visible yet */ }
+}
+
+function uhcRenderStatus(s) {
+  const el = document.getElementById('uhc-status');
+  if (!el) return;
+  const parts = [];
+  if (s.checking) {
+    parts.push(`<span style="color:var(--accent)">⏳ Checking…</span>`);
+  } else if (s.lastResult === 'ok') {
+    parts.push(`<span style="color:var(--green)">✓ nginx healthy</span> — last checked ${relativeTime(s.lastCheckAt)}`);
+  } else if (s.lastResult === 'fail') {
+    parts.push(`<span style="color:var(--red)">✗ nginx check failed</span> (${escHtml(s.lastError || 'unknown error')}) — last checked ${relativeTime(s.lastCheckAt)}`);
+  } else {
+    parts.push(`<span style="color:var(--muted)">No checks run yet</span>`);
+  }
+  if (s.consecutiveFailures > 0) {
+    parts.push(`<div style="color:var(--yellow)">⚠ ${s.consecutiveFailures} consecutive failure${s.consecutiveFailures===1?'':'s'}</div>`);
+  }
+  if (s.restartCount > 0) {
+    parts.push(`<div style="color:var(--muted)">nginx restarted ${s.restartCount} time${s.restartCount===1?'':'s'} — last at ${fmtDateTime(s.lastRestartAt)}</div>`);
+  }
+  el.innerHTML = parts.join('<br>');
+}
+
+async function uhcSave() {
+  const enabled         = document.getElementById('uhc-enabled').checked;
+  const intervalMinutes = parseInt(document.getElementById('uhc-interval').value, 10);
+  if (!Number.isInteger(intervalMinutes) || intervalMinutes < 1) {
+    toast('Enter a whole number of minutes (1 or more)', 'error');
+    return;
+  }
+  try {
+    const d = await api('POST', '/api/admin/ui-health-check/settings', { enabled, intervalMinutes });
+    document.getElementById('uhc-interval').value = d.settings.intervalMinutes;
+    uhcRenderStatus(d.status);
+    toast(enabled ? `Health check enabled — every ${intervalMinutes}m` : 'Health check disabled', 'success');
+  } catch (e) { toast('Failed to save: ' + e.message, 'error'); }
+}
+
+async function uhcRunNow() {
+  const btn = document.getElementById('uhc-run-btn');
+  btn.disabled = true;
+  try {
+    const d = await api('POST', '/api/admin/ui-health-check/run');
+    uhcRenderStatus(d.status);
+    toast(d.status.lastResult === 'ok' ? 'nginx is healthy' : `nginx check failed: ${d.status.lastError}`, d.status.lastResult === 'ok' ? 'success' : 'error');
+  } catch (e) { toast('Check failed: ' + e.message, 'error'); }
+  finally { btn.disabled = false; }
+}
+
 /* ── Ollama Version Pin ──────────────────────────────────────────────────── */
 
 async function ovLoad() {
@@ -2796,7 +2866,7 @@ refreshInterval = setInterval(() => {
   if (currentTab === 'scripts')    loadScripts();
   else if (currentTab === 'logs')  loadLogs();
   else if (currentTab === 'audit') loadAudit();
-  else if (currentTab === 'admin') loadUsers();
+  else if (currentTab === 'admin') { loadUsers(); uhcRefreshStatus(); }
 }, 10000);
 
 // ── Theme toggle ─────────────────────────────────────────────────────────────

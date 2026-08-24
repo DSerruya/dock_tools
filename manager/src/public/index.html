@@ -484,6 +484,27 @@
       </div>
     </div>
 
+    <!-- UI Health Check card -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:24px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;flex-wrap:wrap;gap:8px">
+        <div style="font-size:14px;font-weight:600">🩺 UI Health Check</div>
+        <label class="toggle-switch" title="Periodically check that nginx is serving the UI, and restart it automatically if it isn't">
+          <input type="checkbox" id="uhc-enabled" onchange="uhcSave()" />
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5">
+        Pings nginx (the reverse proxy in front of this UI) on an interval. If it fails to respond, nginx is restarted automatically.
+      </div>
+      <div id="uhc-interval-row" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+        <label style="font-size:12px;color:var(--muted)">Check every</label>
+        <input id="uhc-interval" type="number" min="1" max="1440" step="1" class="input" style="width:70px;padding:4px 8px;font-size:12px" onchange="uhcSave()" />
+        <label style="font-size:12px;color:var(--muted)">minute(s)</label>
+        <button class="btn btn-ghost btn-sm" id="uhc-run-btn" onclick="uhcRunNow()">▶ Check Now</button>
+      </div>
+      <div id="uhc-status" style="font-size:12px;line-height:1.7"></div>
+    </div>
+
     <!-- Addons card -->
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:24px">
       <div style="font-size:14px;font-weight:600;margin-bottom:12px">🧩 Addons</div>
