@@ -15,6 +15,8 @@ import * as cronService   from './services/cronService';
 import * as logService    from './services/logService';
 import * as userService   from './services/userService';
 import * as uiHealthCheckService from './services/uiHealthCheckService';
+import * as dockerService from './services/dockerService';
+import * as heartbeatService from './services/heartbeatService';
 
 const app  = express();
 const PORT = parseInt(process.env.PORT || '3000');
@@ -91,4 +93,22 @@ app.listen(PORT, async () => {
   const configs = configService.loadAll();
   cronService.initAll(configs);
   uiHealthCheckService.init();
+
+  // Persistent scripts' containers keep running across a manager restart (RestartPolicy:
+  // unless-stopped), but heartbeatService's periodic-ping timers live only in this process's
+  // memory and are otherwise armed only from an explicit start/restart call. Without this, any
+  // already-running persistent script silently loses its "ping every N seconds" heartbeat the
+  // moment the manager restarts (self-update, host reboot, etc.) until someone manually
+  // restarts that script from the UI.
+  let resumedHeartbeats = 0;
+  for (const config of configs) {
+    if (config.runMode !== 'persistent') continue;
+    try {
+      if (await dockerService.getStatus(config.name) === 'running') {
+        heartbeatService.startPeriodic(config);
+        resumedHeartbeats++;
+      }
+    } catch (err) { console.error(`[boot] Failed to resume heartbeat for ${config.name}:`, err); }
+  }
+  if (resumedHeartbeats) console.log(`[boot] Resumed periodic heartbeat for ${resumedHeartbeats} running persistent script(s)`);
 });
