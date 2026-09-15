@@ -2021,6 +2021,25 @@ async function runSystemTests(): Promise<void> {
         { cwd: SYSTEM_TESTS_JEST_DIR },
       );
       if (installCode !== 0) throw new Error('Failed to install the test runner (npm install jest)');
+
+      // Seen in practice on the hostPath-mounted data volume: npm exits 0 (sometimes even
+      // reporting "up to date", reading a stale node_modules/.package-lock.json left behind by
+      // an earlier interrupted install) without actually materializing jest/bin/jest.js. One
+      // clean retry — wipe the install dir and reinstall from scratch — self-heals that instead
+      // of leaving every future run to fail the same way until someone clicks "Clean" by hand.
+      if (!fs.existsSync(jestEntry)) {
+        systemTestsLog('Test runner install looked successful but jest.js is missing — retrying with a clean install...');
+        fs.rmSync(SYSTEM_TESTS_JEST_DIR, { recursive: true, force: true });
+        fs.mkdirSync(SYSTEM_TESTS_JEST_DIR, { recursive: true });
+        const retryCode = await runSystemTestsTracked(
+          'npm', ['install', '--no-audit', '--no-fund', '--no-save', `jest@${SYSTEM_TESTS_JEST_VERSION}`],
+          { cwd: SYSTEM_TESTS_JEST_DIR },
+        );
+        if (retryCode !== 0) throw new Error('Failed to install the test runner (npm install jest)');
+        if (!fs.existsSync(jestEntry)) {
+          throw new Error('Test runner install did not produce jest.js even after a clean retry');
+        }
+      }
     } else {
       systemTestsLog('Using cached test runner.');
     }
