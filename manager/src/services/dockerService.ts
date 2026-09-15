@@ -1,6 +1,7 @@
 import Dockerode from 'dockerode';
 import { PassThrough } from 'stream';
 import * as fs from 'fs';
+import * as crypto from 'crypto';
 import { ScriptConfig, ContainerStatus, DEPS_SENTINEL } from '../types';
 import * as logService from './logService';
 import * as heartbeatService from './heartbeatService';
@@ -78,6 +79,59 @@ async function pullImage(image: string): Promise<void> {
       docker.modem.followProgress(stream, (e: Error | null) => e ? reject(e) : resolve());
     });
   });
+}
+
+function setupBuildDir(name: string): string { return `${DATA_DIR}/${name}/.setup-build`; }
+
+// Tag is content-addressed (hash of base image + setupCommand text), not name-only, so an
+// unchanged setupCommand always resolves to an already-built image (checked below) and any
+// edit to it naturally produces a new tag — no separate cache-invalidation bookkeeping needed,
+// unlike buildCommand's DEPS_SENTINEL dance.
+function setupImageTag(name: string, baseImage: string, setupCommand: string): string {
+  const hash = crypto.createHash('sha256').update(`${baseImage}\n${setupCommand}`).digest('hex').slice(0, 16);
+  return `script-setup-${name}:${hash}`;
+}
+
+// Builds (or reuses) a per-script image that layers config.setupCommand's OS-level installs
+// (e.g. apt-get packages) on top of the base language image, once, as a real Docker image
+// layer. This exists because those installs live outside /app — the one thing that survives
+// container recreation — so unlike buildCommand's npm/bundle installs, they can't be made to
+// persist via the sentinel-file trick; they need to live in an image layer instead.
+async function buildSetupImage(config: ScriptConfig, baseImage: string): Promise<string> {
+  const tag = setupImageTag(config.name, baseImage, config.setupCommand!);
+
+  try { await docker.getImage(tag).inspect(); return tag; } catch { /* not built yet */ }
+
+  const buildDir = setupBuildDir(config.name);
+  fs.mkdirSync(buildDir, { recursive: true });
+  // setupCommand runs as a single Dockerfile RUN (shell form, /bin/sh -c) — same execution
+  // model as buildCommand/entryPoint elsewhere in this file, just baked into a layer instead
+  // of run against the live container.
+  fs.writeFileSync(`${buildDir}/Dockerfile`, `FROM ${baseImage}\nRUN ${config.setupCommand}\n`);
+
+  const stream = await docker.buildImage({ context: buildDir, src: ['Dockerfile'] }, { t: tag });
+  await new Promise<void>((resolve, reject) => {
+    docker.modem.followProgress(stream, (err: Error | null, output: Array<{ error?: string }>) => {
+      if (err) return reject(err);
+      const failure = output?.find(o => o.error);
+      if (failure) return reject(new Error(failure.error));
+      resolve();
+    });
+  });
+
+  return tag;
+}
+
+// Resolves the image a script's container should run from: the plain base image (pulled as
+// before) when it has no setupCommand, or a cached/rebuilt custom image layering setupCommand
+// on top of that base image otherwise.
+async function resolveImage(config: ScriptConfig): Promise<string> {
+  const baseImage = IMAGE_MAP[config.language] || 'node:20-slim';
+  if (!config.setupCommand) {
+    await pullImage(baseImage);
+    return baseImage;
+  }
+  return buildSetupImage(config, baseImage);
 }
 
 async function removeIfExists(name: string): Promise<void> {
@@ -159,11 +213,9 @@ async function stopVpnSidecar(name: string): Promise<void> {
 // ── Script container ──────────────────────────────────────────────────────────
 
 async function createContainer(config: ScriptConfig, restartPolicy: string): Promise<Dockerode.Container> {
-  const image = IMAGE_MAP[config.language] || 'node:20-slim';
+  const image = await resolveImage(config);
   const skipBuild = !!config.preserveEnv && !!config.buildCommand && fs.existsSync(localDepsSentinelPath(config.name));
   const cmd   = resolveCmd(config, skipBuild);
-
-  await pullImage(image);
 
   // Read-write mount when a build step is needed (npm install writes node_modules, etc.)
   const bindMount = config.buildCommand

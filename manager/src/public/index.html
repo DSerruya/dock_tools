@@ -993,6 +993,13 @@
         <input id="f-entry" type="text" placeholder="main.py" />
       </div>
       <div class="form-group">
+        <label>Setup Command <span style="font-size:10px;color:var(--muted);text-transform:none;letter-spacing:0">(optional — OS packages)</span></label>
+        <input id="f-setupcmd" type="text" placeholder="apt-get update && apt-get install -y --no-install-recommends git" />
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">
+          Builds a custom image layer on top of the base language image before the container starts — for OS-level tools (<code>git</code>, <code>curl</code>, <code>awscli</code>) that Build Command can't install (it runs inside the container and can't survive being recreated). Cached by content: only changes to this field trigger a rebuild.
+        </div>
+      </div>
+      <div class="form-group">
         <label>Build Command <span style="font-size:10px;color:var(--muted);text-transform:none;letter-spacing:0">(optional)</span></label>
         <input id="f-buildcmd" type="text" placeholder="npm install && npm run build" oninput="onBuildCmdChange()" />
         <div id="buildcmd-hint" style="font-size:11px;color:var(--muted);margin-top:5px;display:none">

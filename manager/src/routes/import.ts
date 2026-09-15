@@ -42,6 +42,7 @@ router.post('/', requireRole('admin', 'agent'), async (req, res) => {
       repo:         raw.repo,
       branch:       raw.branch       || 'main',
       entryPoint:   raw.entryPoint   || 'index.js',
+      setupCommand: raw.setupCommand || undefined,
       buildCommand: raw.buildCommand || undefined,
       repoToken:    raw.repoToken    || undefined,
       port:         raw.port,

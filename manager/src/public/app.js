@@ -228,6 +228,9 @@ function renderCard({ config, status, nextRun, vpnStatus }) {
     isUpload
       ? `<span>📦 Uploaded archive</span>`
       : `<span>📁 ${escHtml((config.repo || '').replace('https://github.com/',''))}</span>`,
+    config.setupCommand
+      ? `<span>🧱 Setup: <code>${escHtml(config.setupCommand)}</code></span>`
+      : '',
     config.buildCommand
       ? `<span>🔨 Build: <code>${escHtml(config.buildCommand)}</code></span>`
       : '',
@@ -1462,7 +1465,7 @@ function closeAddModal() {
 }
 
 function resetForm() {
-  ['f-name','f-repo','f-entry','f-schedule','f-buildcmd','f-token','f-vpn-mssfix','f-heartbeat-url','f-heartbeat-interval'].forEach(id => {
+  ['f-name','f-repo','f-entry','f-schedule','f-setupcmd','f-buildcmd','f-token','f-vpn-mssfix','f-heartbeat-url','f-heartbeat-interval'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = '';
   });
   document.getElementById('f-branch').value    = 'main';
@@ -1705,6 +1708,7 @@ function populateScriptForm(config) {
   document.getElementById('f-repo').value     = config.repo   || '';
   document.getElementById('f-branch').value   = config.branch || '';
   document.getElementById('f-entry').value    = config.entryPoint;
+  document.getElementById('f-setupcmd').value = config.setupCommand || '';
   document.getElementById('f-buildcmd').value = config.buildCommand || '';
   document.getElementById('f-preserve-env').checked = !!config.preserveEnv;
   document.getElementById('f-port').value     = config.port || '';
@@ -1847,6 +1851,7 @@ function collectScriptFormBody() {
   const port     = document.getElementById('f-port').value;
   const sched    = document.getElementById('f-schedule').value.trim();
   const tz       = document.getElementById('f-timezone').value;
+  const setupcmd = document.getElementById('f-setupcmd').value.trim();
   const buildcmd = document.getElementById('f-buildcmd').value.trim();
   const preserveEnv = document.getElementById('f-preserve-env').checked;
   const token    = document.getElementById('f-token').value.trim();
@@ -1871,6 +1876,7 @@ function collectScriptFormBody() {
     if (token) body.repoToken = token;
   }
   if (port)                   body.port         = parseInt(port);
+  body.setupCommand = setupcmd;           // empty string clears it on edit
   body.buildCommand = buildcmd;           // empty string clears it on edit
   body.preserveEnv  = buildcmd ? preserveEnv : false;
   body.schedule  = runMode === 'scheduled' ? sched : '';

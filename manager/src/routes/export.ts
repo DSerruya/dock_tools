@@ -15,6 +15,7 @@ router.get('/', (_req, res) => {
     repo:         config.repo,
     branch:       config.branch,
     entryPoint:   config.entryPoint,
+    setupCommand: config.setupCommand,
     buildCommand: config.buildCommand,
     runMode:      config.runMode,
     schedule:     config.schedule,

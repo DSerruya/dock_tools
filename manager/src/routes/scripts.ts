@@ -54,6 +54,10 @@ function validateScriptFields(body: Partial<ScriptConfig>): string | null {
     const err = validateShellCommand(body.buildCommand, 'buildCommand');
     if (err) return err;
   }
+  if (body.setupCommand) {
+    const err = validateShellCommand(body.setupCommand, 'setupCommand');
+    if (err) return err;
+  }
   if (body.env) {
     const err = validateEnvKeys(body.env);
     if (err) return err;
@@ -116,6 +120,7 @@ router.post('/', requireRole('admin', 'agent'), async (req, res) => {
     env:          body.env,
     buildCommand: body.buildCommand || undefined,
     preserveEnv:  body.preserveEnv  || undefined,
+    setupCommand: body.setupCommand || undefined,
     repoToken:    sourceType === 'git' ? (body.repoToken || undefined) : undefined,
     schedule:     body.schedule,
     timezone:     body.timezone,
@@ -206,6 +211,7 @@ router.put('/:name', requireRole('admin', 'agent'), async (req, res) => {
     entryPoint:   (body.entryPoint   ?? config.entryPoint),
     buildCommand: body.buildCommand  !== undefined ? (body.buildCommand  || undefined) : config.buildCommand,
     preserveEnv:  body.preserveEnv   !== undefined ?  body.preserveEnv                 : config.preserveEnv,
+    setupCommand: body.setupCommand  !== undefined ? (body.setupCommand  || undefined) : config.setupCommand,
     repoToken:    isGit ? (body.repoToken !== undefined ? (incomingToken || undefined) : config.repoToken) : undefined,
     port:         body.port          !== undefined ?  body.port                        : config.port,
     env:          body.env           !== undefined ?  body.env                         : config.env,

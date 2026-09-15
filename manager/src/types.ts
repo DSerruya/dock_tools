@@ -25,6 +25,12 @@ export interface ScriptConfig {
   preserveEnv?: boolean;   // skip re-running buildCommand once it has succeeded, until buildCommand
                            // changes, "Update Deps" is triggered manually, or (for git-based scripts)
                            // the next pull brings in new commits — see dockerService.ts sentinel file
+  setupCommand?: string;   // optional OS-level setup (e.g. "apt-get install -y git"), run once as a
+                           // Docker image layer on top of the base language image, before buildCommand.
+                           // Cached by content hash (see dockerService.ts buildSetupImage) rather than
+                           // the /app sentinel — buildCommand's cache model doesn't apply here because
+                           // OS packages install outside /app and would otherwise vanish every time the
+                           // container is recreated, sentinel or not.
   repoToken?: string;      // GitHub Personal Access Token for private repos (stored, never logged)
   runMode: RunMode;
   schedule?: string;
