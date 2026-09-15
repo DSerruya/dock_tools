@@ -854,6 +854,35 @@
       </div>
       <div id="sqlt-table-wrap" style="display:none;overflow-x:auto;margin-top:12px"></div>
     </div>
+
+    <!-- Repo System Tests card -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:24px">
+      <div style="font-size:14px;font-weight:600;margin-bottom:4px">🏗️ Repo System Tests</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5">
+        Runs the <code style="font-size:11px;color:var(--accent)">system-tests/</code> suite from the repo's current
+        branch — checks that manager's RBAC, the single-node/local-dockerd assumptions, nginx's proxy config, and the
+        Platform Apps name-collision guard still match what's actually deployed. Clones the repo fresh each run, so
+        it always tests the latest pushed code rather than whatever this image was built from.
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+        <button class="btn btn-primary btn-sm" id="st-run-btn" onclick="stRun()">▶ Run Tests</button>
+        <button class="btn btn-ghost btn-sm" id="st-stop-btn" style="display:none" onclick="stStop()">⏹ Stop</button>
+        <button class="btn btn-ghost btn-sm" id="st-clean-btn" onclick="stClean()" title="Wipe the cached repo clone and test-runner install">🗑 Clean Cache</button>
+        <span id="st-status-badge" style="font-size:12px"></span>
+      </div>
+      <div id="st-result" style="font-size:12px;margin-bottom:8px;line-height:1.6"></div>
+      <div id="st-files-wrap" style="display:none;margin-bottom:12px;overflow-x:auto"></div>
+      <div id="st-log-wrap" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;cursor:pointer" onclick="stToggleLog()">
+          <span style="font-size:12px;font-weight:600;color:var(--muted)">Run log</span>
+          <span id="st-log-toggle" style="font-size:11px;color:var(--muted)">▾ show</span>
+        </div>
+        <div id="st-log"
+             style="display:none;font-family:'Courier New',monospace;font-size:11px;
+                    background:#0a0c12;border:1px solid var(--border);border-radius:6px;
+                    padding:10px;max-height:260px;overflow-y:auto;color:#a3e635;white-space:pre-wrap;word-break:break-all"></div>
+      </div>
+    </div>
   </div>
 
   <!-- ── Audit / Changes tab ── -->

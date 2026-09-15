@@ -1926,4 +1926,188 @@ router.post('/sql-test/clean', async (_req, res) => {
   }
 });
 
+// ── Repo System Tests (system-tests/) ──────────────────────────────────────────
+//
+// Runs the repo's system-tests/ suite — static checks that manager/RBAC/nginx/Platform-Apps
+// still match the architecture assumptions documented alongside them (single-node + local
+// dockerd, no registry, namespace-scoped RBAC, the isNameTaken() collision guard, etc.).
+//
+// Two things make this trickier than the other admin ops tools on this tab: jest is a
+// devDependency and this image's own Dockerfile runs `npm prune --omit=dev` after build, so it's
+// not present at runtime; and system-tests/ lives one directory above manager/ — outside
+// manager/Dockerfile's own build context — so it was never copied into this image either. Rather
+// than reworking the image build (bigger blast radius: self-update's buildImage(), deploy-rancher.sh
+// and the README's manual-build instructions all assume the build context is manager/ alone), this
+// clones a fresh shallow copy of PROJECT_REPO on every run — same mechanism runUpdate() already
+// uses above — so a click always tests whatever is actually on the configured branch, and installs
+// jest once into a cached directory on the data volume, reused on every run after the first.
+
+const SYSTEM_TESTS_ROOT         = path.join(ADMIN_DATA_DIR, 'system-tests-runner');
+const SYSTEM_TESTS_REPO         = path.join(SYSTEM_TESTS_ROOT, 'repo');
+const SYSTEM_TESTS_JEST_DIR     = path.join(SYSTEM_TESTS_ROOT, 'jest-install');
+const SYSTEM_TESTS_RESULTS_FILE = path.join(SYSTEM_TESTS_ROOT, 'results.json');
+const SYSTEM_TESTS_JEST_VERSION = '^30.4.2'; // matches manager/package.json's pinned jest devDependency
+
+interface SystemTestFailure { title: string; message: string; }
+interface SystemTestFile {
+  name: string;
+  status: 'passed' | 'failed';
+  numPassingTests: number;
+  numFailingTests: number;
+  failures: SystemTestFailure[];
+}
+interface SystemTestsResult {
+  success: boolean;
+  numTotalTests: number;
+  numPassedTests: number;
+  numFailedTests: number;
+  commitSha: string;
+  files: SystemTestFile[];
+}
+
+type SystemTestsStatus = 'idle' | 'cloning' | 'installing' | 'running' | 'success' | 'failed';
+interface SystemTestsState {
+  running: boolean;
+  status:  SystemTestsStatus;
+  log:     string;
+  result?: SystemTestsResult;
+  error?:  string;
+  aborted: boolean;
+}
+
+let systemTestsState: SystemTestsState = { running: false, status: 'idle', log: '', aborted: false };
+let systemTestsChild: ReturnType<typeof spawn> | null = null;
+
+function systemTestsLog(line: string): void {
+  systemTestsState.log += line + '\n';
+}
+
+function runSystemTestsTracked(cmd: string, args: string[], opts: Record<string, any> = {}): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(cmd, args, opts);
+    systemTestsChild = child;
+    child.stdout?.on('data', (d: Buffer) => systemTestsLog(stripAnsi(d.toString())));
+    child.stderr?.on('data', (d: Buffer) => systemTestsLog(stripAnsi(d.toString())));
+    child.on('error', reject);
+    child.on('close', (code: number | null) => { systemTestsChild = null; resolve(code ?? 1); });
+  });
+}
+
+async function runSystemTests(): Promise<void> {
+  systemTestsState = { running: true, status: 'cloning', log: '', aborted: false };
+  try {
+    fs.mkdirSync(SYSTEM_TESTS_ROOT, { recursive: true });
+
+    if (fs.existsSync(SYSTEM_TESTS_REPO)) fs.rmSync(SYSTEM_TESTS_REPO, { recursive: true, force: true });
+    systemTestsLog(`Cloning ${PROJECT_REPO} ...`);
+    await simpleGit().clone(PROJECT_REPO, SYSTEM_TESTS_REPO, ['--depth', '1']);
+    const commitSha = (await simpleGit(SYSTEM_TESTS_REPO).revparse(['HEAD'])).trim();
+    systemTestsLog(`Cloned at ${commitSha.slice(0, 7)}.`);
+
+    if (systemTestsState.aborted) throw new Error('Aborted');
+
+    const jestBin = path.join(SYSTEM_TESTS_JEST_DIR, 'node_modules', '.bin', 'jest');
+    if (!fs.existsSync(jestBin)) {
+      systemTestsState.status = 'installing';
+      systemTestsLog('Installing test runner (first run only, cached afterward)...');
+      fs.mkdirSync(SYSTEM_TESTS_JEST_DIR, { recursive: true });
+      const installCode = await runSystemTestsTracked(
+        'npm', ['install', '--no-audit', '--no-fund', '--no-save', `jest@${SYSTEM_TESTS_JEST_VERSION}`],
+        { cwd: SYSTEM_TESTS_JEST_DIR },
+      );
+      if (installCode !== 0) throw new Error('Failed to install the test runner (npm install jest)');
+    } else {
+      systemTestsLog('Using cached test runner.');
+    }
+
+    if (systemTestsState.aborted) throw new Error('Aborted');
+
+    systemTestsState.status = 'running';
+    systemTestsLog('Running system-tests...');
+    if (fs.existsSync(SYSTEM_TESTS_RESULTS_FILE)) fs.rmSync(SYSTEM_TESTS_RESULTS_FILE);
+    // Explicit inline config, not manager/package.json's jest.roots — this only ever runs
+    // system-tests/, never manager/tests, regardless of what the cloned repo's own config says.
+    const jestConfig = JSON.stringify({
+      rootDir: SYSTEM_TESTS_REPO,
+      roots:   [path.join(SYSTEM_TESTS_REPO, 'system-tests')],
+      testEnvironment: 'node',
+    });
+    await runSystemTestsTracked(
+      jestBin, ['--json', `--outputFile=${SYSTEM_TESTS_RESULTS_FILE}`, '--config', jestConfig],
+      { cwd: SYSTEM_TESTS_REPO },
+    );
+    // jest exits non-zero on test failures — expected, not itself a thrown error. The results
+    // file (written regardless of exit code, unless the process crashed before finishing) is
+    // the real signal, checked next.
+
+    if (!fs.existsSync(SYSTEM_TESTS_RESULTS_FILE)) {
+      throw new Error('Test runner produced no results file — see log above for a crash');
+    }
+    const raw = JSON.parse(fs.readFileSync(SYSTEM_TESTS_RESULTS_FILE, 'utf8'));
+
+    const files: SystemTestFile[] = (raw.testResults || []).map((tr: any) => {
+      const assertions: any[] = tr.assertionResults || [];
+      return {
+        name: path.relative(SYSTEM_TESTS_REPO, tr.name),
+        status: tr.status,
+        numPassingTests: assertions.filter(a => a.status === 'passed').length,
+        numFailingTests: assertions.filter(a => a.status === 'failed').length,
+        failures: assertions
+          .filter(a => a.status === 'failed')
+          .map(a => ({ title: a.title, message: (a.failureMessages || []).join('\n') })),
+      };
+    });
+
+    systemTestsState.result = {
+      success: !!raw.success,
+      numTotalTests:  raw.numTotalTests ?? 0,
+      numPassedTests: raw.numPassedTests ?? 0,
+      numFailedTests: raw.numFailedTests ?? 0,
+      commitSha,
+      files,
+    };
+    systemTestsState.status = raw.success ? 'success' : 'failed';
+    if (!raw.success) {
+      systemTestsState.error = `${systemTestsState.result.numFailedTests} of ${systemTestsState.result.numTotalTests} test(s) failed`;
+    }
+    systemTestsLog(raw.success ? 'All tests passed.' : `${systemTestsState.result.numFailedTests} test(s) failed.`);
+  } catch (err: any) {
+    systemTestsState.status = 'failed';
+    systemTestsState.error  = err.message;
+    systemTestsLog(`Error: ${err.message}`);
+  } finally {
+    systemTestsState.running = false;
+    systemTestsChild = null;
+  }
+}
+
+// GET /api/admin/system-tests/status
+router.get('/system-tests/status', (_req, res) => res.json(systemTestsState));
+
+// POST /api/admin/system-tests/run
+router.post('/system-tests/run', (_req, res) => {
+  if (systemTestsState.running) return res.status(409).json({ error: 'Tests already running' });
+  res.json({ message: 'Tests started' });
+  setImmediate(() => runSystemTests());
+});
+
+// POST /api/admin/system-tests/stop
+router.post('/system-tests/stop', (_req, res) => {
+  systemTestsState.aborted = true;
+  if (systemTestsChild) { try { systemTestsChild.kill(); } catch { /* already exited */ } }
+  res.json({ message: 'Stop requested' });
+});
+
+// POST /api/admin/system-tests/clean — wipe the cached clone + jest install (troubleshooting only)
+router.post('/system-tests/clean', (_req, res) => {
+  if (systemTestsState.running) return res.status(409).json({ error: 'Tests are currently running' });
+  try {
+    if (fs.existsSync(SYSTEM_TESTS_ROOT)) fs.rmSync(SYSTEM_TESTS_ROOT, { recursive: true, force: true });
+    systemTestsState = { running: false, status: 'idle', log: '', aborted: false };
+    res.json({ message: 'Cleaned up' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

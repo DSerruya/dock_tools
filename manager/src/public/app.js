@@ -90,7 +90,7 @@ function showTab(tab) {
   else if (tab === 'logs')  loadLogs();
   else if (tab === 'audit') loadAudit();
   else if (tab === 'admin') { loadUsers(); loadSystemVersion(); loadAddons(); loadResources(); ovLoad(); uhcInit(); }
-  else if (tab === 'tests') { vtInit(); avpnInit(); sqltInit(); }
+  else if (tab === 'tests') { vtInit(); avpnInit(); sqltInit(); stInit(); }
   else if (tab === 'platform-apps') loadPlatformApps();
 }
 
@@ -2770,6 +2770,126 @@ async function avpnRefresh() {
   if (state.log) {
     document.getElementById('avpn-log-wrap').style.display = '';
     const log = document.getElementById('avpn-log');
+    log.textContent = state.log;
+    if (state.running) log.scrollTop = log.scrollHeight;
+  }
+}
+
+/* ── Repo System Tests (system-tests/) ──────────────────────────────────── */
+let stPollTimer = null;
+
+const ST_STATUS = {
+  idle:       { label: '— Idle',               color: 'var(--muted)' },
+  cloning:    { label: '⟳ Cloning repo…',      color: 'var(--accent)' },
+  installing: { label: '⟳ Installing runner…', color: 'var(--accent)' },
+  running:    { label: '⟳ Running tests…',     color: 'var(--accent)' },
+  success:    { label: '✓ All tests passed',   color: 'var(--green)' },
+  failed:     { label: '✗ Failed',             color: '#ef4444' },
+};
+
+async function stInit() {
+  const state = await api('GET', '/api/admin/system-tests/status').catch(() => null);
+  if (state && state.running) stStartPolling();
+  else stRefresh();
+}
+
+async function stRun() {
+  try {
+    await api('POST', '/api/admin/system-tests/run');
+    document.getElementById('st-result').innerHTML = '';
+    document.getElementById('st-files-wrap').style.display = 'none';
+    stStartPolling();
+  } catch (e) { toast('Failed: ' + e.message, 'error'); }
+}
+
+async function stStop() {
+  await api('POST', '/api/admin/system-tests/stop').catch(() => {});
+  toast('Stop requested', 'info');
+}
+
+async function stClean() {
+  if (!confirm('Wipe the cached repo clone and test-runner install?')) return;
+  try {
+    const r = await api('POST', '/api/admin/system-tests/clean');
+    toast(r.message, 'success');
+    document.getElementById('st-files-wrap').style.display = 'none';
+    stRefresh();
+  } catch (e) { toast('Failed: ' + e.message, 'error'); }
+}
+
+function stStartPolling() {
+  if (stPollTimer) clearInterval(stPollTimer);
+  stPollTimer = setInterval(stRefresh, 1500);
+  stRefresh();
+}
+function stStopPolling() {
+  if (stPollTimer) { clearInterval(stPollTimer); stPollTimer = null; }
+}
+
+function stToggleLog() {
+  const box    = document.getElementById('st-log');
+  const toggle = document.getElementById('st-log-toggle');
+  const shown  = box.style.display !== 'none';
+  box.style.display  = shown ? 'none' : '';
+  toggle.textContent = shown ? '▾ show' : '▴ hide';
+  if (!shown) box.scrollTop = box.scrollHeight;
+}
+
+function stRenderFiles(files) {
+  const wrap = document.getElementById('st-files-wrap');
+  if (!files || !files.length) { wrap.style.display = 'none'; return; }
+
+  let html = '<table class="runs-table"><thead><tr>'
+    + '<th>File</th><th>Passed</th><th>Failed</th><th>Failures</th>'
+    + '</tr></thead><tbody>';
+  for (const f of files) {
+    const color = f.status === 'passed' ? 'var(--green)' : '#ef4444';
+    const failureList = (f.failures || [])
+      .map(fl => `<div style="margin-top:4px"><strong>${escHtml(fl.title)}</strong><br><span style="color:var(--muted)">${escHtml(fl.message).slice(0, 400)}</span></div>`)
+      .join('');
+    html += `<tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:6px 8px;font-family:monospace;white-space:nowrap;color:${color}">${escHtml(f.name)}</td>
+      <td style="padding:6px 8px">${f.numPassingTests}</td>
+      <td style="padding:6px 8px">${f.numFailingTests}</td>
+      <td style="padding:6px 8px;font-size:11px">${failureList}</td>
+    </tr>`;
+  }
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+  wrap.style.display = '';
+}
+
+async function stRefresh() {
+  const state = await api('GET', '/api/admin/system-tests/status').catch(() => null);
+  if (!state) return;
+
+  document.getElementById('st-run-btn').disabled       = state.running;
+  document.getElementById('st-stop-btn').style.display = state.running ? '' : 'none';
+  if (!state.running) stStopPolling();
+
+  const s = ST_STATUS[state.status] || { label: state.status, color: 'var(--muted)' };
+  const badge = document.getElementById('st-status-badge');
+  badge.textContent = s.label;
+  badge.style.color = s.color;
+
+  const resultEl = document.getElementById('st-result');
+  if (state.status === 'success' && state.result) {
+    resultEl.innerHTML = `<span style="color:var(--green)">✓ ${state.result.numPassedTests}/${state.result.numTotalTests} tests passed</span> ·
+      commit <code>${escHtml(state.result.commitSha.slice(0, 7))}</code>`;
+  } else if (state.status === 'failed' && state.result) {
+    resultEl.innerHTML = `<span style="color:#ef4444">✗ ${state.result.numFailedTests}/${state.result.numTotalTests} test(s) failed</span> ·
+      commit <code>${escHtml(state.result.commitSha.slice(0, 7))}</code>`;
+  } else if (state.status === 'failed' && state.error) {
+    resultEl.innerHTML = `<span style="color:#ef4444">✗ ${escHtml(state.error)}</span>`;
+  } else {
+    resultEl.innerHTML = '';
+  }
+
+  if (state.result) stRenderFiles(state.result.files);
+
+  if (state.log) {
+    document.getElementById('st-log-wrap').style.display = '';
+    const log = document.getElementById('st-log');
     log.textContent = state.log;
     if (state.running) log.scrollTop = log.scrollHeight;
   }
