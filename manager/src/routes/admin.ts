@@ -1932,19 +1932,28 @@ router.post('/sql-test/clean', async (_req, res) => {
 // still match the architecture assumptions documented alongside them (single-node + local
 // dockerd, no registry, namespace-scoped RBAC, the isNameTaken() collision guard, etc.).
 //
-// Two things make this trickier than the other admin ops tools on this tab: jest is a
+// Three things make this trickier than the other admin ops tools on this tab: jest is a
 // devDependency and this image's own Dockerfile runs `npm prune --omit=dev` after build, so it's
-// not present at runtime; and system-tests/ lives one directory above manager/ — outside
-// manager/Dockerfile's own build context — so it was never copied into this image either. Rather
-// than reworking the image build (bigger blast radius: self-update's buildImage(), deploy-rancher.sh
-// and the README's manual-build instructions all assume the build context is manager/ alone), this
-// clones a fresh shallow copy of PROJECT_REPO on every run — same mechanism runUpdate() already
-// uses above — so a click always tests whatever is actually on the configured branch, and installs
-// jest once into a cached directory on the data volume, reused on every run after the first.
+// not present at runtime; system-tests/ lives one directory above manager/ — outside
+// manager/Dockerfile's own build context — so it was never copied into this image either; and the
+// data volume (ADMIN_DATA_DIR) is a hostPath bind mount that has already shown one other npm
+// quirk on this project (broken .bin symlinks). Rather than reworking the image build (bigger
+// blast radius: self-update's buildImage(), deploy-rancher.sh and the README's manual-build
+// instructions all assume the build context is manager/ alone), this clones a fresh shallow copy
+// of PROJECT_REPO on every run — same mechanism runUpdate() already uses above — so a click always
+// tests whatever is actually on the configured branch.
+//
+// The jest install itself deliberately does NOT live on that hostPath volume: `npm install` there
+// was observed reporting "up to date" and exiting 0 without actually writing jest/bin/jest.js, even
+// against a directory just wiped with rm -rf — the bind mount, not a stale lockfile, so retrying
+// the same install in the same place didn't help. It lives under the container's own os.tmpdir()
+// instead, which isn't bind-mounted. That's still a real cache for repeat clicks within one
+// container's uptime, just not across a redeploy/restart — an acceptable trade since the on-volume
+// "cache" wasn't actually working anyway.
 
 const SYSTEM_TESTS_ROOT         = path.join(ADMIN_DATA_DIR, 'system-tests-runner');
 const SYSTEM_TESTS_REPO         = path.join(SYSTEM_TESTS_ROOT, 'repo');
-const SYSTEM_TESTS_JEST_DIR     = path.join(SYSTEM_TESTS_ROOT, 'jest-install');
+const SYSTEM_TESTS_JEST_DIR     = path.join(os.tmpdir(), 'system-tests-jest-install');
 const SYSTEM_TESTS_RESULTS_FILE = path.join(SYSTEM_TESTS_ROOT, 'results.json');
 const SYSTEM_TESTS_JEST_VERSION = '^30.4.2'; // matches manager/package.json's pinned jest devDependency
 
@@ -2022,11 +2031,10 @@ async function runSystemTests(): Promise<void> {
       );
       if (installCode !== 0) throw new Error('Failed to install the test runner (npm install jest)');
 
-      // Seen in practice on the hostPath-mounted data volume: npm exits 0 (sometimes even
-      // reporting "up to date", reading a stale node_modules/.package-lock.json left behind by
-      // an earlier interrupted install) without actually materializing jest/bin/jest.js. One
-      // clean retry — wipe the install dir and reinstall from scratch — self-heals that instead
-      // of leaving every future run to fail the same way until someone clicks "Clean" by hand.
+      // Defense in depth: if npm ever exits 0 without actually producing jest.js (e.g. a
+      // corrupted npm cache), one clean retry — wipe the install dir and reinstall from scratch —
+      // self-heals that instead of leaving every future run fail the same way until someone
+      // clicks "Clean" by hand.
       if (!fs.existsSync(jestEntry)) {
         systemTestsLog('Test runner install looked successful but jest.js is missing — retrying with a clean install...');
         fs.rmSync(SYSTEM_TESTS_JEST_DIR, { recursive: true, force: true });
@@ -2127,6 +2135,7 @@ router.post('/system-tests/clean', (_req, res) => {
   if (systemTestsState.running) return res.status(409).json({ error: 'Tests are currently running' });
   try {
     if (fs.existsSync(SYSTEM_TESTS_ROOT)) fs.rmSync(SYSTEM_TESTS_ROOT, { recursive: true, force: true });
+    if (fs.existsSync(SYSTEM_TESTS_JEST_DIR)) fs.rmSync(SYSTEM_TESTS_JEST_DIR, { recursive: true, force: true });
     systemTestsState = { running: false, status: 'idle', log: '', aborted: false };
     res.json({ message: 'Cleaned up' });
   } catch (err: any) {
