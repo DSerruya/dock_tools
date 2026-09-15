@@ -2006,8 +2006,13 @@ async function runSystemTests(): Promise<void> {
 
     if (systemTestsState.aborted) throw new Error('Aborted');
 
-    const jestBin = path.join(SYSTEM_TESTS_JEST_DIR, 'node_modules', '.bin', 'jest');
-    if (!fs.existsSync(jestBin)) {
+    // The real file, not node_modules/.bin/jest — that's a symlink npm creates pointing at this
+    // same path, and it came back missing/broken on a hostPath bind-mounted volume in practice
+    // (npm reported "up to date" on the package itself, but spawning .bin/jest then threw ENOENT).
+    // Invoking the actual entry script via `node` sidesteps both the symlink and any exec-bit/
+    // shebang issues the mount might also have.
+    const jestEntry = path.join(SYSTEM_TESTS_JEST_DIR, 'node_modules', 'jest', 'bin', 'jest.js');
+    if (!fs.existsSync(jestEntry)) {
       systemTestsState.status = 'installing';
       systemTestsLog('Installing test runner (first run only, cached afterward)...');
       fs.mkdirSync(SYSTEM_TESTS_JEST_DIR, { recursive: true });
@@ -2033,7 +2038,7 @@ async function runSystemTests(): Promise<void> {
       testEnvironment: 'node',
     });
     await runSystemTestsTracked(
-      jestBin, ['--json', `--outputFile=${SYSTEM_TESTS_RESULTS_FILE}`, '--config', jestConfig],
+      'node', [jestEntry, '--json', `--outputFile=${SYSTEM_TESTS_RESULTS_FILE}`, '--config', jestConfig],
       { cwd: SYSTEM_TESTS_REPO },
     );
     // jest exits non-zero on test failures — expected, not itself a thrown error. The results
