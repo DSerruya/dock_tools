@@ -7,7 +7,10 @@ resources:
   - namespace.yaml
   - configmap-nginx.yaml
   - configmap-manager.yaml
+  - configmap-hub.yaml
   - deployment-manager.yaml
   - deployment-nginx.yaml
+  - deployment-hub.yaml
   - service-manager.yaml
   - service-nginx.yaml
+  - service-hub.yaml

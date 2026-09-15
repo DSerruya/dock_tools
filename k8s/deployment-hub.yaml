@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: utility-tools-hub
+  namespace: dock-tools
+  labels:
+    app: utility-tools-hub
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: utility-tools-hub
+  strategy:
+    type: Recreate   # only one instance can hold the Docker socket safely — same reasoning as manager
+  template:
+    metadata:
+      labels:
+        app: utility-tools-hub
+    spec:
+      serviceAccountName: default
+
+      initContainers:
+        # Ensure the persisted data directory exists on the node
+        - name: init-data-dir
+          image: busybox:latest
+          command: ["mkdir", "-p", "/data"]
+          volumeMounts:
+            - name: hub-data
+              mountPath: /data
+
+      containers:
+        - name: utility-tools-hub
+          # Built locally on the node from the 1beat-utility-tools-hub repo's own Dockerfile —
+          # see the deploy notes in that repo for the build command. Same imagePullPolicy: Never
+          # convention as dock-tools-manager:latest below.
+          image: utility-tools-hub:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 3000
+          envFrom:
+            - configMapRef:
+                name: hub-config
+          volumeMounts:
+            # Lets the hub drive sibling containers (`docker compose run` for the onboarding_client
+            # customer-import job) against the node's own Docker daemon. This is the one meaningful
+            # difference from a normal dynamic script — see dockerService.ts's "no extra binds, no
+            # host socket access" comment for why regular scripts don't get this.
+            - name: docker-sock
+              mountPath: /var/run/docker.sock
+            # The only stateful path in the image: aws-credentials.json, the aws-home SSO cache,
+            # git-scripts checkouts/configs (including the onboarding_client checkout), and run
+            # history/logs.
+            - name: hub-data
+              mountPath: /app/data
+          # GET /api/health returns a plain 200 {"ok":true} and checks nothing else on purpose,
+          # so a slow AWS/git/docker call from a request in flight never flaps the pod.
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+
+      volumes:
+        - name: docker-sock
+          hostPath:
+            path: /var/run/docker.sock
+            type: Socket
+        - name: hub-data
+          hostPath:
+            path: /opt/dock-tools/utility-tools-hub-data
+            type: DirectoryOrCreate
