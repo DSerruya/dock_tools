@@ -1,7 +1,7 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import simpleGit from 'simple-git';
-import { ScriptConfig, GitSource, DEPS_SENTINEL } from '../types';
+import { ScriptConfig, DEPS_SENTINEL } from '../types';
 
 const DATA_DIR = process.env.DATA_DIR || '/app/scripts-data';
 
@@ -30,26 +30,24 @@ export function isReady(config: ScriptConfig): boolean {
   return isCloned(config.name);
 }
 
-// repo/branch are only optional on GitSource to accommodate ScriptConfig's upload-based configs;
-// every function below is git-specific and must only ever be called for git-sourced configs,
-// where they're always populated. This narrows the type and fails loudly if that contract is
-// broken. Accepting the structural GitSource (rather than ScriptConfig) lets any git-backed
-// config — ScriptConfig or PlatformAppConfig — reuse these functions unchanged.
-function requireGitConfig(config: GitSource): GitSource & { repo: string; branch: string } {
+// repo/branch are only optional to accommodate upload-based configs; every function below is
+// git-specific and must only ever be called (by routes) for sourceType === 'git' configs, where
+// they're always populated. This narrows the type and fails loudly if that contract is broken.
+function requireGitConfig(config: ScriptConfig): ScriptConfig & { repo: string; branch: string } {
   if (!config.repo || !config.branch) {
     throw new Error(`"${config.name}" has no repo/branch configured — not a git-based script`);
   }
-  return config as GitSource & { repo: string; branch: string };
+  return config as ScriptConfig & { repo: string; branch: string };
 }
 
 // Embed a PAT into a GitHub HTTPS URL without exposing it in logs
-function authUrl(config: GitSource & { repo: string }): string {
+function authUrl(config: ScriptConfig & { repo: string }): string {
   if (!config.repoToken) return config.repo;
   // https://github.com/... → https://<token>@github.com/...
   return config.repo.replace('https://', `https://${config.repoToken}@`);
 }
 
-export async function clone(rawConfig: GitSource): Promise<string> {
+export async function clone(rawConfig: ScriptConfig): Promise<string> {
   const config   = requireGitConfig(rawConfig);
   const repoPath = getLocalPath(config.name);
   fs.mkdirSync(repoPath, { recursive: true });
@@ -58,7 +56,7 @@ export async function clone(rawConfig: GitSource): Promise<string> {
   return repoPath;
 }
 
-export async function pull(rawConfig: GitSource): Promise<void> {
+export async function pull(rawConfig: ScriptConfig): Promise<void> {
   const config   = requireGitConfig(rawConfig);
   const repoPath = getLocalPath(config.name);
   const git      = simpleGit(repoPath);
@@ -80,7 +78,7 @@ export function deleteClone(name: string): void {
   if (fs.existsSync(repoPath)) fs.rmSync(repoPath, { recursive: true, force: true });
 }
 
-export async function cloneOrPull(config: GitSource): Promise<string> {
+export async function cloneOrPull(config: ScriptConfig): Promise<string> {
   if (isCloned(config.name)) {
     await pull(config);
   } else {

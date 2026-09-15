@@ -17,7 +17,7 @@ spec:
       labels:
         app: manager
     spec:
-      serviceAccountName: manager-sa
+      serviceAccountName: default
 
       initContainers:
         # Ensure the scripts-data directory exists on the node
