@@ -447,6 +447,7 @@
     <button class="tab-btn"        onclick="showTab('audit')">🕵 Changes</button>
     <button class="tab-btn" id="tab-admin-btn" style="display:none" onclick="showTab('admin')">🔐 Admin</button>
     <button class="tab-btn" id="tab-tests-btn" style="display:none" onclick="showTab('tests')">🧪 System Tests</button>
+    <button class="tab-btn" id="tab-platform-apps-btn" style="display:none" onclick="showTab('platform-apps')">🧱 Platform Apps</button>
   </div>
   <div class="header-actions">
     <button class="howto-btn" id="theme-toggle-btn" onclick="toggleTheme()" title="Toggle light/dark mode">☀</button>
@@ -466,6 +467,21 @@
       </div>
     </div>
     <div id="scripts-container">
+      <div class="empty-state">
+        <div class="icon"><span class="spinner"></span></div>
+        <h2>Loading...</h2>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Platform Apps tab ── -->
+  <div id="tab-platform-apps" class="tab-panel">
+    <div class="scripts-toolbar">
+      <div style="font-size:12px;color:var(--muted)">
+        k8s-deployed apps that need more than a sandboxed script gets (docker.sock, a persistent data volume, a fixed host port) — e.g. utility-tools-hub.
+      </div>
+    </div>
+    <div id="platform-apps-container">
       <div class="empty-state">
         <div class="icon"><span class="spinner"></span></div>
         <h2>Loading...</h2>
@@ -1144,6 +1160,94 @@
       </div>
       <button class="btn btn-ghost" onclick="closeAddModal()">Cancel</button>
       <button class="btn btn-primary" id="script-modal-submit" onclick="submitScriptModal()">Add Script</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Add/Edit Platform App Modal ── -->
+<div id="platform-app-modal" class="overlay hidden">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title" id="pa-modal-title">Add Platform App</span>
+      <button class="modal-close" onclick="closePlatformAppModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Name *</label>
+          <input id="pa-name" type="text" placeholder="utility-tools-hub" />
+          <div id="pa-name-hint" style="font-size:11px;color:var(--muted);margin-top:4px;display:none">Name cannot be changed after creation.</div>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>GitHub Repo URL *</label>
+        <input id="pa-repo" type="text" placeholder="https://github.com/you/my-app" />
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Branch *</label>
+          <input id="pa-branch" type="text" value="main" />
+        </div>
+        <div class="form-group">
+          <label>GitHub Token <span style="font-size:10px;color:var(--muted);text-transform:none;letter-spacing:0">(optional — private repos)</span></label>
+          <input id="pa-token" type="password" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" autocomplete="off" />
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Container Port *</label>
+          <input id="pa-container-port" type="number" placeholder="3000" />
+          <div style="font-size:11px;color:var(--muted);margin-top:4px">What the app listens on inside its own container.</div>
+        </div>
+        <div class="form-group">
+          <label>Host Port <span style="font-size:10px;color:var(--muted);text-transform:none;letter-spacing:0">(optional)</span></label>
+          <input id="pa-host-port" type="number" placeholder="9002" />
+          <div style="font-size:11px;color:var(--muted);margin-top:4px">Published directly on the k8s node — set this when something outside the cluster (e.g. a fixed tunnel/forward) needs to reach this app on a specific port.</div>
+        </div>
+      </div>
+      <div class="form-group">
+        <div style="display:flex;align-items:center;gap:10px">
+          <label class="toggle-switch" title="Mount /var/run/docker.sock — only for apps that must drive sibling containers">
+            <input type="checkbox" id="pa-needs-docker-sock" />
+            <span class="toggle-slider"></span>
+          </label>
+          <span style="font-size:12px">Needs docker.sock (drives sibling containers)</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:8px">
+          <label class="toggle-switch" title="Mount a persistent hostPath volume at /app/data">
+            <input type="checkbox" id="pa-needs-data-volume" />
+            <span class="toggle-slider"></span>
+          </label>
+          <span style="font-size:12px">Needs a persistent data volume (/app/data)</span>
+        </div>
+      </div>
+      <div class="form-group">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <label style="margin-bottom:0">Environment Variables</label>
+          <button class="btn btn-ghost btn-sm" onclick="addPlatformAppEnvRow()">+ Add Variable</button>
+        </div>
+        <div id="pa-env-rows"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closePlatformAppModal()">Cancel</button>
+      <button class="btn btn-primary" id="pa-modal-submit" onclick="submitPlatformAppModal()">Add Platform App</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Platform App Logs Modal (plain pod-log snapshot, not the SSE run-log viewer below) ── -->
+<div id="pa-logs-modal" class="overlay hidden">
+  <div class="modal log-viewer-modal" style="max-width:900px">
+    <div class="modal-header">
+      <span class="modal-title" id="pa-logs-title">Logs</span>
+      <button class="modal-close" onclick="closePlatformAppLogs()">×</button>
+    </div>
+    <div class="modal-body">
+      <pre id="pa-logs-content" style="white-space:pre-wrap;font-size:12px;max-height:60vh;overflow:auto"></pre>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closePlatformAppLogs()">Close</button>
     </div>
   </div>
 </div>

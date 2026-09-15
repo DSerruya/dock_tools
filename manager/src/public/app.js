@@ -73,7 +73,7 @@ async function api(method, path, body) {
 }
 
 /* ── Tab switching ──────────────────────────────────────────────────────── */
-const TAB_INDEX = { scripts: 0, logs: 1, audit: 2, admin: 3, tests: 4 };
+const TAB_INDEX = { scripts: 0, logs: 1, audit: 2, admin: 3, tests: 4, 'platform-apps': 5 };
 
 function showTab(tab) {
   currentTab = tab;
@@ -91,6 +91,7 @@ function showTab(tab) {
   else if (tab === 'audit') loadAudit();
   else if (tab === 'admin') { loadUsers(); loadSystemVersion(); loadAddons(); loadResources(); ovLoad(); uhcInit(); }
   else if (tab === 'tests') { vtInit(); avpnInit(); sqltInit(); }
+  else if (tab === 'platform-apps') loadPlatformApps();
 }
 
 /* ── Role helpers ──────────────────────────────────────────────────────────── */
@@ -104,6 +105,7 @@ async function loadCurrentUser() {
     // Show admin tab and system tests tab only for admins
     document.getElementById('tab-admin-btn').style.display = isAdmin() ? '' : 'none';
     document.getElementById('tab-tests-btn').style.display = isAdmin() ? '' : 'none';
+    document.getElementById('tab-platform-apps-btn').style.display = isAdmin() ? '' : 'none';
     // Show user pill
     const badge = document.getElementById('user-badge');
     badge.textContent = `${currentUser.username} · ${currentUser.role}`;
@@ -476,6 +478,252 @@ async function deleteScript(name) {
   if (!confirm(`Delete "${name}"? This will stop the container.`)) return;
   try { await api('DELETE', `/api/scripts/${name}`); toast(`${name} deleted`, 'info'); loadScripts(); }
   catch (e) { toast(e.message, 'error'); }
+}
+
+/* ── Platform Apps tab ────────────────────────────────────────────────────── */
+let cachedPlatformApps    = [];
+const pendingPlatformApps = new Set(); // names with an in-flight action
+
+function paStatusDotClass(status) {
+  return status === 'running'      ? 'status-running'
+    :    status === 'error'        ? 'status-error'
+    :    status === 'not_deployed' ? 'status-not_cloned'
+    :    'status-stopped';
+}
+
+async function loadPlatformApps() {
+  try {
+    cachedPlatformApps = await api('GET', '/api/platform-apps');
+    renderPlatformApps(cachedPlatformApps);
+  } catch (e) {
+    document.getElementById('platform-apps-container').innerHTML =
+      `<div class="empty-state"><h2>Failed to load</h2><p>${escHtml(e.message)}</p></div>`;
+  }
+}
+
+function renderPlatformApps(items) {
+  const container = document.getElementById('platform-apps-container');
+  const addTile = canWrite()
+    ? `<div class="card card-add" onclick="openAddPlatformAppModal()" title="Add platform app">
+         <span class="card-add-icon">+</span>
+         <span class="card-add-label">Add Platform App</span>
+       </div>`
+    : '';
+
+  if (!items.length && !addTile) {
+    container.innerHTML = `<div class="empty-state"><h2>No platform apps yet</h2></div>`;
+    return;
+  }
+
+  container.innerHTML = `<div class="scripts-grid">${items.map(renderPlatformAppCard).join('')}${addTile}</div>`;
+}
+
+function renderPlatformAppCard({ config, status }) {
+  const isPending  = pendingPlatformApps.has(config.name);
+  const canStart   = !isPending && status !== 'running';
+  const canStop    = !isPending && status === 'running';
+  const canRestart = !isPending && status === 'running';
+
+  const portMeta = config.hostPort
+    ? `<span>🌐 Host port ${config.hostPort} → :${config.containerPort}</span>`
+    : `<span>🔒 :${config.containerPort} (cluster-internal only)</span>`;
+
+  const meta = [
+    `<span>📁 ${escHtml((config.repo || '').replace('https://github.com/', ''))}</span>`,
+    `<span>🌿 ${escHtml(config.branch)}</span>`,
+    portMeta,
+    config.needsDockerSock ? '<span>🐳 docker.sock</span>' : '',
+    config.needsDataVolume ? '<span>💾 persistent data</span>' : '',
+    config.lastSync ? `<span>🔄 Synced ${relativeTime(config.lastSync)}</span>` : '',
+  ].filter(Boolean).join('');
+
+  const writeActions = canWrite() ? `
+    <button class="btn btn-ghost btn-sm" onclick="startPlatformApp('${config.name}')"   ${canStart   ? '' : 'disabled'}>▶ Start</button>
+    <button class="btn btn-ghost btn-sm" onclick="stopPlatformApp('${config.name}')"    ${canStop    ? '' : 'disabled'}>⏹ Stop</button>
+    <button class="btn btn-ghost btn-sm" onclick="restartPlatformApp('${config.name}')" ${canRestart ? '' : 'disabled'}>↺ Restart</button>
+    <button class="btn btn-ghost btn-sm" onclick="updatePlatformApp('${config.name}')"  ${isPending  ? 'disabled' : ''} title="Pull latest and rebuild">⬇ Update</button>
+  ` : '';
+
+  const editBtn = canWrite()
+    ? `<button class="btn btn-ghost btn-sm" onclick="editPlatformApp('${escHtml(config.name)}')">✏ Edit</button>`
+    : '';
+  const deleteBtn = canDelete()
+    ? `<button class="btn btn-danger btn-sm" onclick="deletePlatformApp('${config.name}')">🗑</button>`
+    : '';
+
+  return `
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">
+          <span class="status-dot ${paStatusDotClass(status)}" title="${status}"></span>
+          <span class="card-name">${escHtml(config.name)}</span>
+        </div>
+        <span class="status-label">${status.replace('_', ' ')}</span>
+      </div>
+      <div class="card-meta">${meta}</div>
+      <div class="card-actions">
+        ${writeActions}
+        ${editBtn}
+        <button class="btn btn-ghost btn-sm" onclick="showPlatformAppLogs('${escHtml(config.name)}')">📋 Logs</button>
+        ${deleteBtn}
+      </div>
+    </div>`;
+}
+
+function _paPendingStart(name) { pendingPlatformApps.add(name); renderPlatformApps(cachedPlatformApps); }
+function _paPendingEnd(name)   { pendingPlatformApps.delete(name); loadPlatformApps(); }
+
+async function startPlatformApp(name) {
+  _paPendingStart(name);
+  try { await api('POST', `/api/platform-apps/${name}/start`); toast(`${name} started`, 'success'); }
+  catch (e) { toast(e.message, 'error'); }
+  finally { _paPendingEnd(name); }
+}
+async function stopPlatformApp(name) {
+  _paPendingStart(name);
+  try { await api('POST', `/api/platform-apps/${name}/stop`); toast(`${name} stopped`, 'info'); }
+  catch (e) { toast(e.message, 'error'); }
+  finally { _paPendingEnd(name); }
+}
+async function restartPlatformApp(name) {
+  _paPendingStart(name);
+  try { await api('POST', `/api/platform-apps/${name}/restart`); toast(`${name} restarting`, 'success'); }
+  catch (e) { toast(e.message, 'error'); }
+  finally { _paPendingEnd(name); }
+}
+async function updatePlatformApp(name) {
+  _paPendingStart(name);
+  try { await api('POST', `/api/platform-apps/${name}/update`); toast(`${name} updating in background…`, 'info'); }
+  catch (e) { toast(e.message, 'error'); }
+  finally { _paPendingEnd(name); }
+}
+async function deletePlatformApp(name) {
+  if (!confirm(`Delete "${name}"? This removes its Deployment/Service from the cluster.`)) return;
+  try { await api('DELETE', `/api/platform-apps/${name}`); toast(`${name} deleted`, 'info'); loadPlatformApps(); }
+  catch (e) { toast(e.message, 'error'); }
+}
+
+async function showPlatformAppLogs(name) {
+  document.getElementById('pa-logs-title').textContent   = `Logs — ${name}`;
+  document.getElementById('pa-logs-content').textContent = 'Loading…';
+  document.getElementById('pa-logs-modal').classList.remove('hidden');
+  try {
+    const { logs } = await api('GET', `/api/platform-apps/${name}/logs`);
+    document.getElementById('pa-logs-content').textContent = logs || '(no logs yet)';
+  } catch (e) {
+    document.getElementById('pa-logs-content').textContent = `Failed to load logs: ${e.message}`;
+  }
+}
+function closePlatformAppLogs() {
+  document.getElementById('pa-logs-modal').classList.add('hidden');
+}
+
+/* ── Add/Edit Platform App modal ── */
+let platformAppModalMode   = 'add';
+let editingPlatformAppName = null;
+
+function addPlatformAppEnvRow(k, v) {
+  const row = document.createElement('div'); row.className = 'env-row';
+  row.innerHTML = `<input type="text" placeholder="KEY" value="${escHtml(k||'')}" class="pa-env-key" />
+    <input type="text" placeholder="value" value="${escHtml(v||'')}" class="pa-env-val" />
+    <button class="env-remove" onclick="this.parentElement.remove()">×</button>`;
+  document.getElementById('pa-env-rows').appendChild(row);
+}
+
+function resetPlatformAppForm() {
+  document.getElementById('pa-name').value            = '';
+  document.getElementById('pa-repo').value            = '';
+  document.getElementById('pa-branch').value          = 'main';
+  document.getElementById('pa-token').value           = '';
+  document.getElementById('pa-token').placeholder     = 'ghp_xxxxxxxxxxxxxxxxxxxx';
+  document.getElementById('pa-container-port').value  = '';
+  document.getElementById('pa-host-port').value       = '';
+  document.getElementById('pa-needs-docker-sock').checked = false;
+  document.getElementById('pa-needs-data-volume').checked = false;
+  document.getElementById('pa-env-rows').innerHTML    = '';
+}
+
+function openAddPlatformAppModal() {
+  platformAppModalMode   = 'add';
+  editingPlatformAppName = null;
+  resetPlatformAppForm();
+  document.getElementById('pa-modal-title').textContent  = 'Add Platform App';
+  document.getElementById('pa-modal-submit').textContent = 'Add Platform App';
+  document.getElementById('pa-name').disabled = false;
+  document.getElementById('pa-name-hint').style.display = 'none';
+  document.getElementById('pa-repo').disabled = false;
+  document.getElementById('platform-app-modal').classList.remove('hidden');
+}
+
+function editPlatformApp(name) {
+  const item = cachedPlatformApps.find(i => i.config.name === name);
+  if (!item) return;
+  const { config } = item;
+  platformAppModalMode   = 'edit';
+  editingPlatformAppName = name;
+  resetPlatformAppForm();
+  document.getElementById('pa-name').value               = config.name;
+  document.getElementById('pa-repo').value                = config.repo;
+  document.getElementById('pa-branch').value              = config.branch;
+  document.getElementById('pa-token').placeholder         = config.repoToken ? '(token configured — leave blank to keep)' : 'ghp_xxxxxxxxxxxxxxxxxxxx';
+  document.getElementById('pa-container-port').value      = config.containerPort;
+  document.getElementById('pa-host-port').value           = config.hostPort || '';
+  document.getElementById('pa-needs-docker-sock').checked = !!config.needsDockerSock;
+  document.getElementById('pa-needs-data-volume').checked = !!config.needsDataVolume;
+  Object.entries(config.env || {}).forEach(([k, v]) => addPlatformAppEnvRow(k, v));
+
+  document.getElementById('pa-modal-title').textContent  = `Edit Platform App — ${name}`;
+  document.getElementById('pa-modal-submit').textContent = 'Save Changes';
+  // Name and repo are immutable after creation — changing either would silently detach this
+  // record from its already-cloned repo / already-applied k8s objects rather than re-pointing them.
+  document.getElementById('pa-name').disabled = true;
+  document.getElementById('pa-name-hint').style.display = '';
+  document.getElementById('pa-repo').disabled = true;
+  document.getElementById('platform-app-modal').classList.remove('hidden');
+}
+
+function closePlatformAppModal() {
+  document.getElementById('platform-app-modal').classList.add('hidden');
+  platformAppModalMode   = 'add';
+  editingPlatformAppName = null;
+}
+
+async function submitPlatformAppModal() {
+  const name            = document.getElementById('pa-name').value.trim();
+  const repo            = document.getElementById('pa-repo').value.trim();
+  const branch          = document.getElementById('pa-branch').value.trim() || 'main';
+  const token           = document.getElementById('pa-token').value.trim();
+  const containerPort   = parseInt(document.getElementById('pa-container-port').value, 10);
+  const hostPortRaw     = document.getElementById('pa-host-port').value.trim();
+  const hostPort        = hostPortRaw ? parseInt(hostPortRaw, 10) : undefined;
+  const needsDockerSock = document.getElementById('pa-needs-docker-sock').checked;
+  const needsDataVolume = document.getElementById('pa-needs-data-volume').checked;
+
+  const env = {};
+  document.querySelectorAll('#pa-env-rows .env-row').forEach(row => {
+    const k = row.querySelector('.pa-env-key').value.trim();
+    const v = row.querySelector('.pa-env-val').value.trim();
+    if (k) env[k] = v;
+  });
+
+  if (!name)          { toast('Name is required', 'error'); return; }
+  if (!repo)          { toast('Repo URL is required', 'error'); return; }
+  if (!containerPort) { toast('Container port is required', 'error'); return; }
+
+  const body = { branch, containerPort, hostPort, env, needsDockerSock, needsDataVolume };
+  if (token) body.repoToken = token;
+
+  try {
+    if (platformAppModalMode === 'add') {
+      await api('POST', '/api/platform-apps', { name, repo, ...body });
+      toast(`"${name}" added — cloning and building in background…`, 'success');
+    } else {
+      await api('PUT', `/api/platform-apps/${editingPlatformAppName}`, body);
+      toast(`"${editingPlatformAppName}" updated`, 'success');
+    }
+    closePlatformAppModal();
+    setTimeout(loadPlatformApps, 1500);
+  } catch (e) { toast(e.message, 'error'); }
 }
 
 /* ── Import Scripts ──────────────────────────────────────────────────────── */
