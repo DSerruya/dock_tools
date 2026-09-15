@@ -35,5 +35,11 @@
     "request": {
       "uuid": "^3.3.2"
     }
+  },
+  "jest": {
+    "roots": [
+      "<rootDir>/tests",
+      "<rootDir>/../system-tests"
+    ]
   }
 }
