@@ -640,6 +640,11 @@ function resetPlatformAppForm() {
   document.getElementById('pa-host-port').value       = '';
   document.getElementById('pa-needs-docker-sock').checked = false;
   document.getElementById('pa-needs-data-volume').checked = false;
+  document.getElementById('pa-health-check-path').value = '';
+  document.getElementById('pa-cpu-request').value    = '';
+  document.getElementById('pa-cpu-limit').value      = '';
+  document.getElementById('pa-memory-request').value = '';
+  document.getElementById('pa-memory-limit').value   = '';
   document.getElementById('pa-env-rows').innerHTML    = '';
 }
 
@@ -670,6 +675,11 @@ function editPlatformApp(name) {
   document.getElementById('pa-host-port').value           = config.hostPort || '';
   document.getElementById('pa-needs-docker-sock').checked = !!config.needsDockerSock;
   document.getElementById('pa-needs-data-volume').checked = !!config.needsDataVolume;
+  document.getElementById('pa-health-check-path').value = config.healthCheckPath || '';
+  document.getElementById('pa-cpu-request').value    = config.resources?.requests?.cpu || '';
+  document.getElementById('pa-cpu-limit').value      = config.resources?.limits?.cpu || '';
+  document.getElementById('pa-memory-request').value = config.resources?.requests?.memory || '';
+  document.getElementById('pa-memory-limit').value   = config.resources?.limits?.memory || '';
   Object.entries(config.env || {}).forEach(([k, v]) => addPlatformAppEnvRow(k, v));
 
   document.getElementById('pa-modal-title').textContent  = `Edit Platform App — ${name}`;
@@ -698,6 +708,17 @@ async function submitPlatformAppModal() {
   const hostPort        = hostPortRaw ? parseInt(hostPortRaw, 10) : undefined;
   const needsDockerSock = document.getElementById('pa-needs-docker-sock').checked;
   const needsDataVolume = document.getElementById('pa-needs-data-volume').checked;
+  const healthCheckPath = document.getElementById('pa-health-check-path').value.trim() || undefined;
+
+  const cpuRequest    = document.getElementById('pa-cpu-request').value.trim();
+  const cpuLimit      = document.getElementById('pa-cpu-limit').value.trim();
+  const memoryRequest = document.getElementById('pa-memory-request').value.trim();
+  const memoryLimit   = document.getElementById('pa-memory-limit').value.trim();
+  const requests = { ...(cpuRequest && { cpu: cpuRequest }), ...(memoryRequest && { memory: memoryRequest }) };
+  const limits   = { ...(cpuLimit && { cpu: cpuLimit }), ...(memoryLimit && { memory: memoryLimit }) };
+  const resources = (Object.keys(requests).length || Object.keys(limits).length)
+    ? { ...(Object.keys(requests).length && { requests }), ...(Object.keys(limits).length && { limits }) }
+    : undefined;
 
   const env = {};
   document.querySelectorAll('#pa-env-rows .env-row').forEach(row => {
@@ -710,7 +731,7 @@ async function submitPlatformAppModal() {
   if (!repo)          { toast('Repo URL is required', 'error'); return; }
   if (!containerPort) { toast('Container port is required', 'error'); return; }
 
-  const body = { branch, containerPort, hostPort, env, needsDockerSock, needsDataVolume };
+  const body = { branch, containerPort, hostPort, env, needsDockerSock, needsDataVolume, healthCheckPath, resources };
   if (token) body.repoToken = token;
 
   try {
@@ -3416,4 +3437,27 @@ function openHeartbeatModal() {
   // Trigger placeholder/hint update
   onBuildCmdChange();
   document.getElementById('f-entry').placeholder = 'ruby main.rb';
+}
+
+// ── Utility Tools Hub quick-add ─────────────────────────────────────────────
+function openUtilityToolsHubModal() {
+  // Open the standard Add Platform App modal pre-filled for utility-tools-hub. The repo is
+  // private, so the GitHub Token field is deliberately left for the user to paste in by hand —
+  // never hardcode a credential into this client-side bundle.
+  openAddPlatformAppModal();
+  document.getElementById('pa-name').value             = 'utility-tools-hub';
+  document.getElementById('pa-repo').value              = 'https://github.com/DSerruya/1beat-utility-tools-hub.git';
+  document.getElementById('pa-branch').value            = 'master';
+  document.getElementById('pa-container-port').value    = 3000;
+  document.getElementById('pa-needs-docker-sock').checked = true;
+  document.getElementById('pa-needs-data-volume').checked = true;
+  document.getElementById('pa-health-check-path').value = '/api/health';
+  document.getElementById('pa-cpu-request').value       = '100m';
+  document.getElementById('pa-cpu-limit').value         = '500m';
+  document.getElementById('pa-memory-request').value    = '128Mi';
+  document.getElementById('pa-memory-limit').value      = '512Mi';
+  document.getElementById('pa-env-rows').innerHTML      = '';
+  addPlatformAppEnvRow('PORT', '3000');
+  addPlatformAppEnvRow('AWS_HOME_HOST_DIR', '/opt/dock-tools/platform-apps/utility-tools-hub-data/onboarding/aws-home');
+  document.getElementById('pa-token').focus();
 }

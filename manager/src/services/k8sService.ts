@@ -54,6 +54,14 @@ function buildDeploymentSpec(config: PlatformAppConfig): k8s.V1Deployment {
   const containerPort: k8s.V1ContainerPort = { containerPort: config.containerPort };
   if (config.hostPort) containerPort.hostPort = config.hostPort;
 
+  // Same shape/defaults as deployment-hub.yaml's own probes: a slower liveness than readiness so
+  // a container that's merely slow to become ready doesn't get killed before it has a chance.
+  const probe: k8s.V1Probe | undefined = config.healthCheckPath
+    ? { httpGet: { path: config.healthCheckPath, port: config.containerPort } }
+    : undefined;
+  const readinessProbe = probe ? { ...probe, initialDelaySeconds: 5, periodSeconds: 5 } : undefined;
+  const livenessProbe  = probe ? { ...probe, initialDelaySeconds: 15, periodSeconds: 20 } : undefined;
+
   return {
     apiVersion: 'apps/v1',
     kind: 'Deployment',
@@ -74,6 +82,9 @@ function buildDeploymentSpec(config: PlatformAppConfig): k8s.V1Deployment {
             ports: [containerPort],
             env: Object.entries(config.env || {}).map(([name, value]) => ({ name, value })),
             volumeMounts,
+            readinessProbe,
+            livenessProbe,
+            resources: config.resources,
           }],
           volumes,
         },

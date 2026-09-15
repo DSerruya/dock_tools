@@ -84,8 +84,20 @@ export interface PlatformAppConfig {
   needsDockerSock?: boolean;  // mount /var/run/docker.sock — only for apps that must drive
                                // sibling containers (e.g. utility-tools-hub's onboarding runner)
   needsDataVolume?: boolean;  // mount a persistent hostPath at /app/data
+  healthCheckPath?: string;   // e.g. "/api/health" — when set, wires readiness+liveness httpGet
+                               // probes on this path at containerPort. Left unset, the pod gets
+                               // no probes at all (k8s treats it as always-ready once started).
+  resources?: PlatformAppResources;
   createdAt: string;
   lastSync?: string;
+}
+
+// Plain cpu/memory quantity strings (k8s format, e.g. "250m", "256Mi") — passed straight through
+// to the container spec, same as everywhere else in k8s tooling. All optional: a bare {} (or an
+// undefined resources field entirely) means "no request/limit set", same as omitting it in yaml.
+export interface PlatformAppResources {
+  requests?: { cpu?: string; memory?: string };
+  limits?: { cpu?: string; memory?: string };
 }
 
 export type PlatformAppRuntimeStatus = 'running' | 'stopped' | 'error' | 'not_deployed';

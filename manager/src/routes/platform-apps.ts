@@ -32,6 +32,9 @@ function validateFields(body: Partial<PlatformAppConfig>): string | null {
   if (body.hostPort !== undefined && (!Number.isInteger(body.hostPort) || body.hostPort <= 0)) {
     return 'hostPort must be a positive integer';
   }
+  if (body.healthCheckPath !== undefined && !body.healthCheckPath.startsWith('/')) {
+    return 'healthCheckPath must start with "/"';
+  }
   return null;
 }
 
@@ -80,6 +83,8 @@ router.post('/', requireRole('admin'), async (req, res) => {
     env: body.env,
     needsDockerSock: !!body.needsDockerSock,
     needsDataVolume: !!body.needsDataVolume,
+    healthCheckPath: body.healthCheckPath,
+    resources: body.resources,
     createdAt: new Date().toISOString(),
   };
 
@@ -91,6 +96,7 @@ router.post('/', requireRole('admin'), async (req, res) => {
     { field: 'hostPort', newValue: config.hostPort },
     { field: 'needsDockerSock', newValue: config.needsDockerSock },
     { field: 'needsDataVolume', newValue: config.needsDataVolume },
+    { field: 'healthCheckPath', newValue: config.healthCheckPath },
   ]);
 
   res.status(201).json({ message: 'Platform app added. Cloning and building in background...' });
@@ -122,6 +128,8 @@ router.put('/:name', requireRole('admin'), async (req, res) => {
     env: body.env ?? existing.env,
     needsDockerSock: body.needsDockerSock ?? existing.needsDockerSock,
     needsDataVolume: body.needsDataVolume ?? existing.needsDataVolume,
+    healthCheckPath: body.healthCheckPath ?? existing.healthCheckPath,
+    resources: body.resources ?? existing.resources,
   };
   // repo/name are immutable after creation — same convention as ScriptConfig — since changing
   // either would silently detach this record from its already-cloned repo / already-applied

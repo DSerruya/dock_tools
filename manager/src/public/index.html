@@ -481,6 +481,21 @@
         k8s-deployed apps that need more than a sandboxed script gets (docker.sock, a persistent data volume, a fixed host port) — e.g. utility-tools-hub.
       </div>
     </div>
+
+    <!-- Utility Tools Hub quick-add card -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:24px">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+        <div>
+          <div style="font-size:14px;font-weight:600;margin-bottom:4px">🧰 Utility Tools Hub</div>
+          <div style="font-size:12px;color:var(--muted);line-height:1.6">
+            Admin toolkit — AWS SSO onboarding, git-scripts runner, customer import automation. Needs docker.sock + a persistent data volume.<br>
+            Repo: <code style="font-size:11px;color:var(--accent)">github.com/DSerruya/1beat-utility-tools-hub</code> <span style="color:var(--muted)">(private — paste a GitHub token in the modal)</span>
+          </div>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="openUtilityToolsHubModal()">+ Add Platform App</button>
+      </div>
+    </div>
+
     <div id="platform-apps-container">
       <div class="empty-state">
         <div class="icon"><span class="spinner"></span></div>
@@ -1248,6 +1263,27 @@
             <span class="toggle-slider"></span>
           </label>
           <span style="font-size:12px">Needs a persistent data volume (/app/data)</span>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Health Check Path <span style="font-size:10px;color:var(--muted);text-transform:none;letter-spacing:0">(optional)</span></label>
+        <input id="pa-health-check-path" type="text" placeholder="/api/health" />
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">Wires readiness+liveness probes on this path at Container Port. Leave blank for no probes.</div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>CPU Request / Limit <span style="font-size:10px;color:var(--muted);text-transform:none;letter-spacing:0">(optional)</span></label>
+          <div style="display:flex;gap:8px">
+            <input id="pa-cpu-request" type="text" placeholder="100m" />
+            <input id="pa-cpu-limit" type="text" placeholder="500m" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Memory Request / Limit <span style="font-size:10px;color:var(--muted);text-transform:none;letter-spacing:0">(optional)</span></label>
+          <div style="display:flex;gap:8px">
+            <input id="pa-memory-request" type="text" placeholder="128Mi" />
+            <input id="pa-memory-limit" type="text" placeholder="512Mi" />
+          </div>
         </div>
       </div>
       <div class="form-group">
