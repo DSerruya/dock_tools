@@ -152,6 +152,24 @@ router.post('/', requireRole('admin', 'agent'), async (req, res) => {
   res.status(201).json({ message: 'Script added. Cloning repository in background...' });
 });
 
+// Must be registered before PUT /:name — otherwise Express would match "reorder" as :name.
+router.put('/reorder', requireRole('admin', 'agent'), (req, res) => {
+  const { order } = req.body as { order?: string[] };
+  const user = getUser(req);
+
+  if (!Array.isArray(order) || order.some(n => typeof n !== 'string'))
+    return res.status(400).json({ error: 'order must be an array of script names' });
+
+  const configs = configService.loadAll();
+  const byName  = new Map(configs.map(c => [c.name, c]));
+  if (order.length !== configs.length || order.some(n => !byName.has(n)))
+    return res.status(400).json({ error: 'order must contain exactly the current script names' });
+
+  configService.replaceAll(order.map(n => byName.get(n)!));
+  auditService.record(user, 'scripts.reordered', '*', [{ field: 'order', newValue: order }]);
+  res.json({ ok: true });
+});
+
 router.put('/:name', requireRole('admin', 'agent'), async (req, res) => {
   const config = configService.get(req.params.name);
   if (!config) return res.status(404).json({ error: 'Script not found' });

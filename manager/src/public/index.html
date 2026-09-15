@@ -158,11 +158,38 @@
     .empty-state .icon { font-size: 48px; margin-bottom: 16px; }
     .empty-state h2 { font-size: 18px; margin-bottom: 8px; color: var(--text); }
 
+    /* ── Scripts toolbar (view switcher) ── */
+    .scripts-toolbar { display: flex; justify-content: flex-end; margin-bottom: 12px; }
+    .view-toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+    .view-toggle-btn { background: var(--surface); color: var(--muted); border: none; padding: 6px 14px; font-size: 12px; cursor: pointer; }
+    .view-toggle-btn + .view-toggle-btn { border-left: 1px solid var(--border); }
+    .view-toggle-btn.active { background: var(--accent); color: #fff; }
+    .view-toggle-btn:not(.active):hover { color: var(--text); }
+
     /* ── Script cards ── */
     .scripts-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 16px; }
 
     .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 18px; transition: border-color .2s, box-shadow .2s; }
     .card:hover { border-color: var(--border-hi); box-shadow: 0 4px 20px rgba(0,0,0,.25); }
+    .card.dragging { opacity: .4; }
+    .card[draggable="true"] { cursor: grab; }
+    .drag-handle { cursor: grab; color: var(--muted); font-size: 14px; line-height: 1; padding: 0 2px; user-select: none; }
+
+    /* ── Script list view ── */
+    .scripts-list { display: flex; flex-direction: column; gap: 6px; }
+    .list-row {
+      display: flex; align-items: center; gap: 12px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+      padding: 8px 12px; cursor: grab;
+    }
+    .list-row.dragging { opacity: .4; }
+    .list-row .list-name { font-size: 13px; font-weight: 600; min-width: 140px; flex-shrink: 0; }
+    .list-row .list-meta {
+      flex: 1; display: flex; gap: 16px; font-size: 12px; color: var(--muted);
+      overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+    }
+    .list-row .list-status { font-size: 11px; color: var(--muted); flex-shrink: 0; width: 90px; }
+    .list-row .list-actions { display: flex; gap: 4px; flex-shrink: 0; }
 
     /* Ghost "add" card — dashed border, vertically centred + icon */
     .card-add {
@@ -432,6 +459,12 @@
 <main>
   <!-- ── Scripts tab ── -->
   <div id="tab-scripts" class="tab-panel active">
+    <div class="scripts-toolbar">
+      <div class="view-toggle" role="group" aria-label="Scripts view">
+        <button id="view-grid-btn" class="view-toggle-btn" onclick="setScriptsView('grid')" title="Grid view">▦ Grid</button>
+        <button id="view-list-btn" class="view-toggle-btn" onclick="setScriptsView('list')" title="List view">☰ List</button>
+      </div>
+    </div>
     <div id="scripts-container">
       <div class="empty-state">
         <div class="icon"><span class="spinner"></span></div>

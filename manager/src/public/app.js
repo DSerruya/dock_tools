@@ -124,6 +124,21 @@ function refreshCurrent() {
 
 const pendingScripts = new Set(); // names of scripts with an in-flight action
 let   cachedScripts  = [];        // last successful fetch, used for instant re-renders
+let   scriptsViewMode = localStorage.getItem('scriptsViewMode') === 'list' ? 'list' : 'grid';
+let   _dragScriptName = null;     // name of the script card/row currently being dragged
+
+function setScriptsView(mode) {
+  scriptsViewMode = mode === 'list' ? 'list' : 'grid';
+  try { localStorage.setItem('scriptsViewMode', scriptsViewMode); } catch {}
+  renderScripts(cachedScripts);
+}
+
+function updateViewToggleButtons() {
+  const gridBtn = document.getElementById('view-grid-btn');
+  const listBtn = document.getElementById('view-list-btn');
+  if (gridBtn) gridBtn.classList.toggle('active', scriptsViewMode === 'grid');
+  if (listBtn) listBtn.classList.toggle('active', scriptsViewMode === 'list');
+}
 
 async function loadScripts() {
   setLoading(true);
@@ -138,6 +153,7 @@ async function loadScripts() {
 
 function renderScripts(scripts) {
   const el      = document.getElementById('scripts-container');
+  updateViewToggleButtons();
   const addCard = canWrite()
     ? `<div class="card card-add" onclick="openAddModal()" title="Add script">
          <span class="card-add-icon">+</span>
@@ -149,7 +165,51 @@ function renderScripts(scripts) {
     el.innerHTML = `<div class="scripts-grid">${addCard}</div>`;
     return;
   }
-  el.innerHTML = `<div class="scripts-grid">${scripts.map(renderCard).join('')}${addCard}</div>`;
+
+  if (scriptsViewMode === 'list') {
+    el.innerHTML = `<div class="scripts-list">${scripts.map(renderListRow).join('')}</div>`
+      + (addCard ? `<div class="scripts-grid" style="margin-top:12px">${addCard}</div>` : '');
+  } else {
+    el.innerHTML = `<div class="scripts-grid">${scripts.map(renderCard).join('')}${addCard}</div>`;
+  }
+}
+
+/* ── Drag-to-reorder (shared by grid cards and list rows) ─────────────────── */
+function onScriptDragStart(e, name) {
+  _dragScriptName = name;
+  e.dataTransfer.effectAllowed = 'move';
+  try { e.dataTransfer.setData('text/plain', name); } catch {}
+  e.currentTarget.classList.add('dragging');
+}
+function onScriptDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+}
+function onScriptDragEnd(e) {
+  e.currentTarget.classList.remove('dragging');
+  _dragScriptName = null;
+}
+async function onScriptDrop(e, targetName) {
+  e.preventDefault();
+  const dragName = _dragScriptName;
+  if (!dragName || dragName === targetName) return;
+
+  const arr  = [...cachedScripts];
+  const from = arr.findIndex(s => s.config.name === dragName);
+  const to   = arr.findIndex(s => s.config.name === targetName);
+  if (from < 0 || to < 0) return;
+
+  const [moved] = arr.splice(from, 1);
+  arr.splice(to, 0, moved);
+  cachedScripts = arr;
+  renderScripts(arr);
+
+  try {
+    await api('PUT', '/api/scripts/reorder', { order: arr.map(s => s.config.name) });
+  } catch (err) {
+    toast('Failed to save script order: ' + err.message, 'error');
+    loadScripts();
+  }
 }
 
 function renderCard({ config, status, nextRun, vpnStatus }) {
@@ -221,10 +281,15 @@ function renderCard({ config, status, nextRun, vpnStatus }) {
     ? `<button class="btn btn-danger btn-sm" onclick="deleteScript('${config.name}')">🗑</button>`
     : '';
 
+  const dragAttrs = canWrite()
+    ? ` draggable="true" ondragstart="onScriptDragStart(event, '${escHtml(config.name)}')" ondragover="onScriptDragOver(event)" ondrop="onScriptDrop(event, '${escHtml(config.name)}')" ondragend="onScriptDragEnd(event)"`
+    : '';
+
   return `
-    <div class="card">
+    <div class="card"${dragAttrs}>
       <div class="card-header">
         <div class="card-title">
+          ${canWrite() ? '<span class="drag-handle" title="Drag to reorder">⠿</span>' : ''}
           <span class="status-dot ${dotClass}" title="${statusText}"></span>
           <span class="card-name">${escHtml(config.name)}</span>
           <span class="badge badge-${config.language}">${config.language}</span>
@@ -248,6 +313,63 @@ function renderCard({ config, status, nextRun, vpnStatus }) {
         <button class="btn btn-ghost btn-sm" onclick="downloadScript('${escHtml(config.name)}')" title="Download script files as .tar.gz">⬇</button>
         ${deleteBtn}
       </div>
+    </div>`;
+}
+
+function renderListRow({ config, status, nextRun, vpnStatus }) {
+  const isScheduled = config.runMode === 'scheduled';
+  const isUpload    = config.sourceType === 'upload';
+  const dotClass    = isScheduled && status !== 'error' ? 'status-scheduled' : `status-${status}`;
+  const statusText  = isScheduled ? (status === 'running' ? 'running' : 'scheduled')
+    : (status === 'not_cloned' && isUpload ? 'awaiting upload' : status.replace('_',' '));
+
+  const isPending  = pendingScripts.has(config.name);
+  const canStart   = !isPending && status !== 'running'  && status !== 'not_cloned';
+  const canStop    = !isPending && status === 'running';
+  const canRestart = !isPending && status === 'running';
+  const canRunNow  = !isPending && status !== 'not_cloned';
+
+  const writeActions = canWrite() ? (
+    isScheduled
+      ? `<button class="btn btn-ghost btn-sm" onclick="runNow('${config.name}')" ${canRunNow ? '' : 'disabled'} title="Run now">▶</button>`
+      : `<button class="btn btn-ghost btn-sm" onclick="startScript('${config.name}')"   ${canStart   ? '' : 'disabled'} title="Start">▶</button>
+         <button class="btn btn-ghost btn-sm" onclick="stopScript('${config.name}')"    ${canStop    ? '' : 'disabled'} title="Stop">⏹</button>
+         <button class="btn btn-ghost btn-sm" onclick="restartScript('${config.name}')" ${canRestart ? '' : 'disabled'} title="Restart">↺</button>`
+  ) : '';
+
+  const editBtn = canWrite()
+    ? `<button class="btn btn-ghost btn-sm" onclick="editScript('${escHtml(config.name)}')" title="Edit">✏</button>`
+    : '';
+  const deleteBtn = canDelete()
+    ? `<button class="btn btn-danger btn-sm" onclick="deleteScript('${config.name}')" title="Delete">🗑</button>`
+    : '';
+
+  const meta = [
+    isUpload ? '📦 Uploaded' : `📁 ${escHtml((config.repo || '').replace('https://github.com/',''))}`,
+    !isUpload && config.branch ? `🌿 ${escHtml(config.branch)}` : '',
+    `🚀 ${escHtml(config.entryPoint)}`,
+    config.port ? `🌐 <a class="open-app-link" href="http://${location.hostname}:${config.port}" target="_blank" rel="noopener">:${config.port} ↗</a>` : '',
+    config.lastRun ? `⏱ ${relativeTime(config.lastRun)}` : '',
+  ].filter(Boolean).map(s => `<span>${s}</span>`).join('');
+
+  const dragAttrs = canWrite()
+    ? ` draggable="true" ondragstart="onScriptDragStart(event, '${escHtml(config.name)}')" ondragover="onScriptDragOver(event)" ondrop="onScriptDrop(event, '${escHtml(config.name)}')" ondragend="onScriptDragEnd(event)"`
+    : '';
+
+  return `
+    <div class="list-row"${dragAttrs}>
+      ${canWrite() ? '<span class="drag-handle" title="Drag to reorder">⠿</span>' : ''}
+      <span class="status-dot ${dotClass}" title="${statusText}"></span>
+      <span class="list-name">${escHtml(config.name)}</span>
+      <span class="badge badge-${config.language}">${config.language}</span>
+      <span class="list-status">${statusText}</span>
+      <span class="list-meta">${meta}</span>
+      <span class="list-actions">
+        ${writeActions}
+        ${editBtn}
+        <button class="btn btn-ghost btn-sm" onclick="showTab('logs');filterLogs('${config.name}')" title="Logs">📋</button>
+        ${deleteBtn}
+      </span>
     </div>`;
 }
 
