@@ -380,8 +380,8 @@ Start-VM -Name $vmName
 #      This fixes the "package.json not found" error caused by a wrong mount path.
 #
 # After install, Dock Tools is available at:
-#   INTERNAL mode: http://192.168.100.2       (from Windows host browser)
-#   EXTERNAL mode: http://<vm-ip>             (from any LAN machine)
+#   INTERNAL mode: http://192.168.100.2:8484  (from Windows host browser; default port 8484, check MANAGER_PORT in .env)
+#   EXTERNAL mode: http://<vm-ip>:8484        (from any LAN machine)
 #
 # Credentials are printed at the end of the installer.
 # =============================================================================
