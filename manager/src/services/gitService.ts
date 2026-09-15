@@ -2,6 +2,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import simpleGit from 'simple-git';
 import { ScriptConfig, GitSource, DEPS_SENTINEL } from '../types';
+import { getFallbackGithubToken } from './globalSettingsService';
 
 const DATA_DIR = process.env.DATA_DIR || '/app/scripts-data';
 
@@ -42,11 +43,23 @@ function requireGitConfig(config: GitSource): GitSource & { repo: string; branch
   return config as GitSource & { repo: string; branch: string };
 }
 
+function isGithubRepo(repo: string): boolean {
+  return /^https:\/\/github\.com\//i.test(repo);
+}
+
+// Any config's own repoToken wins; a github.com repo with none falls back to the admin-configured
+// global token (set in the Admin tab) rather than failing outright — the fallback is GitHub-
+// specific since it's a single PAT, so it's never applied to other git hosts.
+function resolveToken(config: GitSource & { repo: string }): string | undefined {
+  return config.repoToken || (isGithubRepo(config.repo) ? getFallbackGithubToken() : undefined);
+}
+
 // Embed a PAT into a GitHub HTTPS URL without exposing it in logs
 function authUrl(config: GitSource & { repo: string }): string {
-  if (!config.repoToken) return config.repo;
+  const token = resolveToken(config);
+  if (!token) return config.repo;
   // https://github.com/... → https://<token>@github.com/...
-  return config.repo.replace('https://', `https://${config.repoToken}@`);
+  return config.repo.replace('https://', `https://${token}@`);
 }
 
 export async function clone(rawConfig: GitSource): Promise<string> {
@@ -63,7 +76,7 @@ export async function pull(rawConfig: GitSource): Promise<void> {
   const repoPath = getLocalPath(config.name);
   const git      = simpleGit(repoPath);
 
-  if (config.repoToken) {
+  if (resolveToken(config)) {
     await git.remote(['set-url', 'origin', authUrl(config)]);
   }
   await git.fetch('origin', config.branch);
@@ -101,7 +114,7 @@ export async function checkForUpdates(rawConfig: ScriptConfig): Promise<{
   const repoPath = getLocalPath(config.name);
   const git = simpleGit(repoPath);
 
-  if (config.repoToken) {
+  if (resolveToken(config)) {
     await git.remote(['set-url', 'origin', authUrl(config)]);
   }
 

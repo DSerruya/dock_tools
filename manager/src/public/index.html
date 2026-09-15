@@ -620,6 +620,22 @@
       </div>
     </div>
 
+    <!-- Fallback GitHub Token card -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:24px">
+      <div style="font-size:14px;font-weight:600;margin-bottom:4px">🔑 Fallback GitHub Token</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5">
+        Used to clone/pull a github.com repo for any Script or Platform App that doesn't have its
+        own token configured — a per-app token, when set, always takes priority over this one.
+        Stored encrypted the same way as per-app tokens; never shown again once saved.
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input id="fallback-gh-token" type="password" class="input" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" autocomplete="off" style="max-width:320px" />
+        <button class="btn btn-primary btn-sm" onclick="saveFallbackGithubToken()">Save</button>
+        <button class="btn btn-ghost btn-sm" onclick="clearFallbackGithubToken()">Clear</button>
+      </div>
+      <div id="fallback-gh-token-status" style="font-size:11px;color:var(--muted);margin-top:8px"></div>
+    </div>
+
     <div class="table-toolbar">
       <div>
         <h2 style="font-size:16px;font-weight:600">User Management</h2>

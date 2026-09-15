@@ -1,10 +1,11 @@
-// System tests encoding the "single node + local dockerd, no registry" assumption that manager,
-// utility-tools-hub, and every future Platform App are built on (see the fresh-environment
-// checklist worked out with the utility-tools-hub session, 2026-09-15). None of this is enforced
-// by Kubernetes itself — it's a convention baked into the manifests and into k8sService.ts's
-// generated Deployment spec. These tests exist so an edit that quietly breaks the assumption
-// (e.g. switching imagePullPolicy to IfNotPresent, or adding a PVC/registry push) gets caught
-// here instead of surfacing as a confusing pod-scheduling failure on a future multi-node cluster.
+// System tests encoding the "single node + local dockerd, no registry" assumption that manager
+// and every Platform App (utility-tools-hub included, since its 2026-09-15 migration off
+// hand-authored manifests) are built on. None of this is enforced by Kubernetes itself — it's a
+// convention baked into manager's own manifest and into k8sService.ts's generated Deployment spec
+// (which utility-tools-hub and every future Platform App go through). These tests exist so an
+// edit that quietly breaks the assumption (e.g. switching imagePullPolicy to IfNotPresent, or
+// adding a PVC/registry push) gets caught here instead of surfacing as a confusing pod-scheduling
+// failure on a future multi-node cluster.
 
 const fs = require('fs');
 const path = require('path');
@@ -13,31 +14,27 @@ const K8S_DIR = path.join(__dirname, '..', 'k8s');
 const readK8s = name => fs.readFileSync(path.join(K8S_DIR, name), 'utf8');
 
 const managerYaml = readK8s('deployment-manager.yaml');
-const hubYaml = readK8s('deployment-hub.yaml');
 const k8sServiceSrc = fs.readFileSync(
   path.join(__dirname, '..', 'manager', 'src', 'services', 'k8sService.ts'), 'utf8',
 );
 
-describe.each([
-  ['manager', managerYaml],
-  ['utility-tools-hub', hubYaml],
-])('%s Deployment: single-node/local-image assumptions', (name, yaml) => {
+describe('manager Deployment: single-node/local-image assumptions', () => {
   test('imagePullPolicy is Never — expects the image already built on this node', () => {
-    expect(yaml).toMatch(/imagePullPolicy:\s*Never/);
+    expect(managerYaml).toMatch(/imagePullPolicy:\s*Never/);
   });
 
   test('docker.sock is a node-local hostPath Socket, not a shared/DinD endpoint', () => {
-    expect(yaml).toMatch(/path:\s*\/var\/run\/docker\.sock/);
-    expect(yaml).toMatch(/type:\s*Socket/);
+    expect(managerYaml).toMatch(/path:\s*\/var\/run\/docker\.sock/);
+    expect(managerYaml).toMatch(/type:\s*Socket/);
   });
 
   test('its data volume is a node-local hostPath, not a PVC', () => {
-    expect(yaml).toMatch(/type:\s*DirectoryOrCreate/);
-    expect(yaml).not.toMatch(/PersistentVolumeClaim/);
+    expect(managerYaml).toMatch(/type:\s*DirectoryOrCreate/);
+    expect(managerYaml).not.toMatch(/PersistentVolumeClaim/);
   });
 
   test('uses Recreate rollout strategy (only one pod may hold docker.sock at a time)', () => {
-    expect(yaml).toMatch(/strategy:\s*\n\s*type:\s*Recreate/);
+    expect(managerYaml).toMatch(/strategy:\s*\n\s*type:\s*Recreate/);
   });
 });
 

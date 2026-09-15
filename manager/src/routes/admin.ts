@@ -9,6 +9,7 @@ import simpleGit   from 'simple-git';
 import * as userService  from '../services/userService';
 import * as auditService from '../services/auditService';
 import * as uiHealthCheckService from '../services/uiHealthCheckService';
+import * as globalSettingsService from '../services/globalSettingsService';
 import { requireRole }   from '../middleware/auth';
 import { getUser }       from '../utils/getUser';
 
@@ -284,6 +285,29 @@ router.get('/webhook-secret', (req, res) => {
   res.setHeader('Content-Type', 'text/plain');
   res.setHeader('Content-Disposition', 'attachment; filename="webhook-secret.txt"');
   res.send(secret);
+});
+
+// GET /api/admin/fallback-github-token — never returns the token itself, only whether one is set.
+router.get('/fallback-github-token', (_req, res) => {
+  res.json({ configured: globalSettingsService.isFallbackGithubTokenConfigured() });
+});
+
+// PUT /api/admin/fallback-github-token — used as a last resort by gitService for any Script or
+// Platform App whose own repoToken is unset, for github.com repos only.
+router.put('/fallback-github-token', (req, res) => {
+  const token = (req.body as { token?: string }).token?.trim();
+  if (!token) return res.status(400).json({ error: 'token is required' });
+
+  globalSettingsService.setFallbackGithubToken(token);
+  auditService.record(getUser(req), 'admin.fallback_github_token.updated', '-', []);
+  res.json({ configured: true });
+});
+
+// DELETE /api/admin/fallback-github-token
+router.delete('/fallback-github-token', (req, res) => {
+  globalSettingsService.setFallbackGithubToken(undefined);
+  auditService.record(getUser(req), 'admin.fallback_github_token.cleared', '-', []);
+  res.json({ configured: false });
 });
 
 // GET /api/admin/users

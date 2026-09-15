@@ -89,7 +89,7 @@ function showTab(tab) {
   if (tab === 'scripts')    loadScripts();
   else if (tab === 'logs')  loadLogs();
   else if (tab === 'audit') loadAudit();
-  else if (tab === 'admin') { loadUsers(); loadSystemVersion(); loadAddons(); loadResources(); ovLoad(); uhcInit(); }
+  else if (tab === 'admin') { loadUsers(); loadSystemVersion(); loadAddons(); loadResources(); ovLoad(); uhcInit(); loadFallbackGithubTokenStatus(); }
   else if (tab === 'tests') { vtInit(); avpnInit(); sqltInit(); stInit(); }
   else if (tab === 'platform-apps') loadPlatformApps();
 }
@@ -2541,6 +2541,41 @@ async function ovSave(apply) {
     msg.textContent = e.message;
     msg.style.color = '#ef4444';
   }
+}
+
+/* ── Fallback GitHub Token ────────────────────────────────────────────────── */
+
+async function loadFallbackGithubTokenStatus() {
+  const status = document.getElementById('fallback-gh-token-status');
+  const input  = document.getElementById('fallback-gh-token');
+  try {
+    const { configured } = await api('GET', '/api/admin/fallback-github-token');
+    status.textContent = configured ? 'A fallback token is currently configured.' : 'No fallback token configured.';
+    input.placeholder = configured ? '(token configured — leave blank to keep)' : 'ghp_xxxxxxxxxxxxxxxxxxxx';
+  } catch (e) {
+    status.textContent = `Failed to load: ${e.message}`;
+  }
+}
+
+async function saveFallbackGithubToken() {
+  const token = document.getElementById('fallback-gh-token').value.trim();
+  if (!token) { toast('Enter a token to save', 'error'); return; }
+  try {
+    await api('PUT', '/api/admin/fallback-github-token', { token });
+    document.getElementById('fallback-gh-token').value = '';
+    toast('Fallback GitHub token saved', 'success');
+    await loadFallbackGithubTokenStatus();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function clearFallbackGithubToken() {
+  if (!confirm('Remove the fallback GitHub token? Scripts/apps without their own token will stop being able to reach private github.com repos.')) return;
+  try {
+    await api('DELETE', '/api/admin/fallback-github-token');
+    document.getElementById('fallback-gh-token').value = '';
+    toast('Fallback GitHub token cleared', 'success');
+    await loadFallbackGithubTokenStatus();
+  } catch (e) { toast(e.message, 'error'); }
 }
 
 /* ── Ollama Version Tester ───────────────────────────────────────────────── */
