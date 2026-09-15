@@ -67,10 +67,19 @@ router.post('/', requireRole('admin'), async (req, res) => {
   // e.g. "manager", "nginx", "utility-tools-hub" — which applyDeployment/applyService would
   // otherwise silently overwrite (the RBAC Role has no resourceNames restriction, so it's
   // permitted to replace any Deployment/Service in the namespace by name).
-  if (await k8sService.isNameTaken(body.name)) {
-    return res.status(409).json({
-      error: `"${body.name}" collides with an existing Deployment/Service in the cluster that Platform Apps doesn't manage`,
-    });
+  //
+  // isNameTaken only expects a 404 for "not taken" — any other k8s API error (RBAC drift,
+  // API-server network blip) rejects here and must be caught explicitly: an uncaught rejection
+  // in an async Express handler crashes the whole process (Express 4 doesn't catch it, and
+  // there's no unhandledRejection handler), which nginx then surfaces as a 502.
+  try {
+    if (await k8sService.isNameTaken(body.name)) {
+      return res.status(409).json({
+        error: `"${body.name}" collides with an existing Deployment/Service in the cluster that Platform Apps doesn't manage`,
+      });
+    }
+  } catch (err: any) {
+    return res.status(500).json({ error: `Failed to check cluster for name collision: ${err?.message || err}` });
   }
 
   const config: PlatformAppConfig = {

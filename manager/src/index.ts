@@ -75,6 +75,25 @@ app.use('/api/import',   importRouter);
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
+// ── Error handling ───────────────────────────────────────────────────────────
+// Catches a synchronous throw from a route handler (Express 4 routes these to error middleware
+// automatically). Route handlers should still catch their own async errors for a useful
+// response — Express 4 does NOT forward a rejected promise here on its own.
+app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error('[manager] Unhandled route error:', err);
+  if (!res.headersSent) res.status(500).json({ error: err?.message || 'Internal server error' });
+});
+
+// Last line of defense for an *async* route handler that rejects without its own try/catch: by
+// default Node terminates the process on an unhandled rejection, which — for this single-replica
+// manager Deployment — means nginx surfaces the ensuing restart as a bare 502 to whichever
+// request is in flight. Registering a listener overrides that default (log instead of crash);
+// callers still get no response to their original request, but the process stays up for
+// everyone else.
+process.on('unhandledRejection', (reason) => {
+  console.error('[manager] Unhandled promise rejection:', reason);
+});
+
 // ── Boot ─────────────────────────────────────────────────────────────────────
 app.listen(PORT, async () => {
   console.log(`[manager] Listening on port ${PORT}`);

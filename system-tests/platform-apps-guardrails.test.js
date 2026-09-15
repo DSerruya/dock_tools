@@ -16,6 +16,9 @@ const k8sServiceSrc = fs.readFileSync(
 const platformAppsRouteSrc = fs.readFileSync(
   path.join(__dirname, '..', 'manager', 'src', 'routes', 'platform-apps.ts'), 'utf8',
 );
+const indexSrc = fs.readFileSync(
+  path.join(__dirname, '..', 'manager', 'src', 'index.ts'), 'utf8',
+);
 
 describe('platform-app name-collision guard', () => {
   test('k8sService exports isNameTaken', () => {
@@ -60,5 +63,53 @@ describe('platform-app name-collision guard', () => {
       k8sServiceSrc.indexOf('export async function isNameTaken'),
     );
     expect(fnBody).toMatch(/if\s*\(isNotFound\(err\)\)\s*return\s*false/);
+  });
+});
+
+// Regression tests for the 2026-09-15 "HTTP 502 on Add Platform App" incident: isNameTaken()
+// rethrows any non-404 k8s API error (RBAC drift, an API-server network blip — more likely on a
+// real remote cluster than in local dev). The POST / route awaited it with no try/catch, and with
+// no process-wide unhandledRejection handler either, that rejection crashed the whole manager
+// process; nginx then returned a bare 502 to the request that triggered it, before any
+// clone/build step ever ran. See platform-apps.ts and index.ts for the fix.
+describe('POST / does not crash the process when the k8s API errors', () => {
+  test('the isNameTaken call is wrapped in its own try/catch, not left to reject unguarded', () => {
+    const guardCallIdx = platformAppsRouteSrc.indexOf('k8sService.isNameTaken(');
+    const tryIdx = platformAppsRouteSrc.lastIndexOf('try {', guardCallIdx);
+    const catchIdx = platformAppsRouteSrc.indexOf('} catch', guardCallIdx);
+
+    expect(tryIdx).toBeGreaterThan(-1);
+    expect(catchIdx).toBeGreaterThan(guardCallIdx);
+
+    // the try block must actually wrap the guard call (no unrelated try/catch in between)
+    const tryBlock = platformAppsRouteSrc.slice(tryIdx, catchIdx);
+    expect(tryBlock).toContain('k8sService.isNameTaken(');
+  });
+
+  test('a failed name-collision check responds with 500, not a silently dropped rejection', () => {
+    const guardCallIdx = platformAppsRouteSrc.indexOf('k8sService.isNameTaken(');
+    const catchIdx = platformAppsRouteSrc.indexOf('} catch', guardCallIdx);
+    const catchBlockEnd = platformAppsRouteSrc.indexOf('\n  }', catchIdx);
+    const catchBlock = platformAppsRouteSrc.slice(catchIdx, catchBlockEnd);
+
+    expect(catchBlock).toMatch(/res\.status\(500\)/);
+  });
+});
+
+describe('manager process survives an unhandled promise rejection', () => {
+  test('index.ts registers a process-level unhandledRejection handler', () => {
+    expect(indexSrc).toMatch(/process\.on\(\s*['"]unhandledRejection['"]/);
+  });
+
+  test('the unhandledRejection handler is registered before app.listen boots the server', () => {
+    const handlerIdx = indexSrc.indexOf("process.on('unhandledRejection'");
+    const listenIdx = indexSrc.indexOf('app.listen(');
+    expect(handlerIdx).toBeGreaterThan(-1);
+    expect(listenIdx).toBeGreaterThan(-1);
+    expect(handlerIdx).toBeLessThan(listenIdx);
+  });
+
+  test('an Express error-handling middleware is registered (4-arg signature)', () => {
+    expect(indexSrc).toMatch(/app\.use\(\s*\(\s*err[^)]*,\s*_?req[^)]*,\s*res[^)]*,\s*_?next[^)]*\)\s*=>/);
   });
 });
