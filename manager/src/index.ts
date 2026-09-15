@@ -9,6 +9,7 @@ import adminRouter    from './routes/admin';
 import exportRouter   from './routes/export';
 import importRouter   from './routes/import';
 import backupRouter   from './routes/backup';
+import platformAppsRouter from './routes/platform-apps';
 import { authenticate } from './middleware/auth';
 import * as configService from './services/configService';
 import * as cronService   from './services/cronService';
@@ -61,6 +62,7 @@ app.get('/api/me', (req, res) => {
 });
 
 app.use('/api/scripts',  scriptsRouter);
+app.use('/api/platform-apps', platformAppsRouter);
 app.use('/api',          schedulesRouter);
 app.use('/api/logs',     logsRouter);
 app.use('/api/audit',    auditRouter);

@@ -5,6 +5,7 @@ namespace: dock-tools
 
 resources:
   - namespace.yaml
+  - rbac-manager.yaml
   - configmap-nginx.yaml
   - configmap-manager.yaml
   - configmap-hub.yaml

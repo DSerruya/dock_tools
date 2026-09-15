@@ -55,3 +55,42 @@ export interface ScriptStatus {
   status: ContainerStatus;
   nextRun?: string | null;
 }
+
+// Narrow, structural interface gitService.ts's git operations accept — both ScriptConfig and
+// PlatformAppConfig satisfy it as-is, so no adapter/mapping is needed at the call sites.
+export interface GitSource {
+  name: string;
+  repo?: string;
+  branch?: string;
+  repoToken?: string;
+}
+
+// A k8s-deployed "platform app" — the less-sandboxed sibling of ScriptConfig for apps that need
+// docker.sock, a persistent data volume, or a fixed host port (e.g. utility-tools-hub), none of
+// which ScriptConfig's dockerService.ts ever grants a plain script. Kept as a separate type
+// rather than new ScriptConfig fields so that elevated access stays an explicit, visible opt-in
+// per app instead of something bolted onto the sandboxed-by-default script model.
+export interface PlatformAppConfig {
+  name: string;
+  repo: string;
+  branch: string;
+  repoToken?: string;
+  containerPort: number;      // port the app listens on inside its container
+  hostPort?: number;          // published on the k8s node via the pod's hostPort — same
+                               // "any host port" flexibility ScriptConfig's PortBindings give
+                               // plain scripts, since k3s's NodePort range can't cover arbitrary
+                               // ports like 9002
+  env?: Record<string, string>;
+  needsDockerSock?: boolean;  // mount /var/run/docker.sock — only for apps that must drive
+                               // sibling containers (e.g. utility-tools-hub's onboarding runner)
+  needsDataVolume?: boolean;  // mount a persistent hostPath at /app/data
+  createdAt: string;
+  lastSync?: string;
+}
+
+export type PlatformAppRuntimeStatus = 'running' | 'stopped' | 'error' | 'not_deployed';
+
+export interface PlatformAppStatus {
+  config: PlatformAppConfig;
+  status: PlatformAppRuntimeStatus;
+}
