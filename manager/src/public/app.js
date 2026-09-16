@@ -482,18 +482,38 @@ async function deleteScript(name) {
 
 /* ── Platform Apps tab ────────────────────────────────────────────────────── */
 let cachedPlatformApps    = [];
-const pendingPlatformApps = new Set(); // names with an in-flight action
+const pendingPlatformApps = new Set(); // names with an in-flight start/stop/restart call
 
-function paStatusDotClass(status) {
+// Install/update run in the background (git clone + docker build — can take several minutes for
+// a real app, see the utility-tools-hub install) with no server-side "in progress" flag, so this
+// tracks it purely client-side: set when the request that kicks off the background job succeeds,
+// cleared once a subsequent poll sees the app is no longer 'not_deployed' (done, one way or
+// another). DEPLOY_TIMEOUT_MS is a safety net so a build that fails without ever changing status
+// doesn't leave the dot stuck yellow forever — after that, it just falls back to the real status.
+const deployingPlatformApps = new Map(); // name -> Date.now() when deploy started
+const DEPLOY_TIMEOUT_MS = 10 * 60 * 1000;
+
+function _paDeployStart(name) { deployingPlatformApps.set(name, Date.now()); renderPlatformApps(cachedPlatformApps); }
+
+function paStatusDotClass(status, isDeploying) {
+  if (isDeploying) return 'status-deploying';
   return status === 'running'      ? 'status-running'
     :    status === 'error'        ? 'status-error'
-    :    status === 'not_deployed' ? 'status-not_cloned'
+    :    status === 'not_deployed' ? 'status-not_deployed'
     :    'status-stopped';
 }
 
 async function loadPlatformApps() {
   try {
     cachedPlatformApps = await api('GET', '/api/platform-apps');
+    const now = Date.now();
+    cachedPlatformApps.forEach(({ config, status }) => {
+      const startedAt = deployingPlatformApps.get(config.name);
+      if (startedAt === undefined) return;
+      if (status !== 'not_deployed' || now - startedAt > DEPLOY_TIMEOUT_MS) {
+        deployingPlatformApps.delete(config.name);
+      }
+    });
     renderPlatformApps(cachedPlatformApps);
   } catch (e) {
     document.getElementById('platform-apps-container').innerHTML =
@@ -519,10 +539,15 @@ function renderPlatformApps(items) {
 }
 
 function renderPlatformAppCard({ config, status }) {
-  const isPending  = pendingPlatformApps.has(config.name);
-  const canStart   = !isPending && status !== 'running';
-  const canStop    = !isPending && status === 'running';
-  const canRestart = !isPending && status === 'running';
+  const isPending   = pendingPlatformApps.has(config.name);
+  const isDeploying = deployingPlatformApps.has(config.name);
+  const busy        = isPending || isDeploying;
+  // Start/Stop/Restart all require an existing container — not_deployed means there isn't one
+  // yet (or the install/update never finished), same case the "no container — install it first"
+  // error came from before these were gated on it.
+  const canStart   = !busy && status !== 'running' && status !== 'not_deployed';
+  const canStop    = !busy && status === 'running';
+  const canRestart = !busy && status === 'running';
 
   const portMeta = config.hostPort
     ? `<span>🌐 Host port ${config.hostPort} → :${config.containerPort}</span>`
@@ -537,11 +562,15 @@ function renderPlatformAppCard({ config, status }) {
     config.lastSync ? `<span>🔄 Synced ${relativeTime(config.lastSync)}</span>` : '',
   ].filter(Boolean).join('');
 
+  const deployingNotice = isDeploying
+    ? `<div style="color:var(--yellow);font-size:11px;margin-top:6px">⏳ Cloning/building in background — this can take a few minutes for a full app build.</div>`
+    : '';
+
   const writeActions = canWrite() ? `
     <button class="btn btn-ghost btn-sm" onclick="startPlatformApp('${config.name}')"   ${canStart   ? '' : 'disabled'}>▶ Start</button>
     <button class="btn btn-ghost btn-sm" onclick="stopPlatformApp('${config.name}')"    ${canStop    ? '' : 'disabled'}>⏹ Stop</button>
     <button class="btn btn-ghost btn-sm" onclick="restartPlatformApp('${config.name}')" ${canRestart ? '' : 'disabled'}>↺ Restart</button>
-    <button class="btn btn-ghost btn-sm" onclick="updatePlatformApp('${config.name}')"  ${isPending  ? 'disabled' : ''} title="Pull latest and rebuild">⬇ Update</button>
+    <button class="btn btn-ghost btn-sm" onclick="updatePlatformApp('${config.name}')"  ${busy       ? 'disabled' : ''} title="Pull latest and rebuild">⬇ Update</button>
   ` : '';
 
   const editBtn = canWrite()
@@ -551,16 +580,19 @@ function renderPlatformAppCard({ config, status }) {
     ? `<button class="btn btn-danger btn-sm" onclick="deletePlatformApp('${config.name}')">🗑</button>`
     : '';
 
+  const statusLabel = isDeploying ? 'deploying' : status.replace('_', ' ');
+
   return `
     <div class="card">
       <div class="card-header">
         <div class="card-title">
-          <span class="status-dot ${paStatusDotClass(status)}" title="${status}"></span>
+          <span class="status-dot ${paStatusDotClass(status, isDeploying)}" title="${isDeploying ? 'deploying' : status}"></span>
           <span class="card-name">${escHtml(config.name)}</span>
         </div>
-        <span class="status-label">${status.replace('_', ' ')}</span>
+        <span class="status-label">${statusLabel}</span>
       </div>
       <div class="card-meta">${meta}</div>
+      ${deployingNotice}
       <div class="card-actions">
         ${writeActions}
         ${editBtn}
@@ -593,7 +625,11 @@ async function restartPlatformApp(name) {
 }
 async function updatePlatformApp(name) {
   _paPendingStart(name);
-  try { await api('POST', `/api/platform-apps/${name}/update`); toast(`${name} updating in background…`, 'info'); }
+  try {
+    await api('POST', `/api/platform-apps/${name}/update`);
+    toast(`${name} updating in background…`, 'info');
+    _paDeployStart(name);
+  }
   catch (e) { toast(e.message, 'error'); }
   finally { _paPendingEnd(name); }
 }
@@ -738,9 +774,11 @@ async function submitPlatformAppModal() {
     if (platformAppModalMode === 'add') {
       await api('POST', '/api/platform-apps', { name, repo, ...body });
       toast(`"${name}" added — cloning and building in background…`, 'success');
+      _paDeployStart(name);
     } else {
       await api('PUT', `/api/platform-apps/${editingPlatformAppName}`, body);
       toast(`"${editingPlatformAppName}" updated`, 'success');
+      _paDeployStart(editingPlatformAppName);
     }
     closePlatformAppModal();
     setTimeout(loadPlatformApps, 1500);
@@ -3415,10 +3453,11 @@ document.getElementById('edit-user-modal').addEventListener('click',  e => { if 
 /* ── Boot ─────────────────────────────────────────────────────────────────── */
 loadCurrentUser().then(() => loadScripts());
 refreshInterval = setInterval(() => {
-  if (currentTab === 'scripts')    loadScripts();
-  else if (currentTab === 'logs')  loadLogs();
-  else if (currentTab === 'audit') loadAudit();
-  else if (currentTab === 'admin') { loadUsers(); uhcRefreshStatus(); }
+  if (currentTab === 'scripts')             loadScripts();
+  else if (currentTab === 'platform-apps')  loadPlatformApps();
+  else if (currentTab === 'logs')           loadLogs();
+  else if (currentTab === 'audit')          loadAudit();
+  else if (currentTab === 'admin')          { loadUsers(); uhcRefreshStatus(); }
 }, 10000);
 
 // ── Theme toggle ─────────────────────────────────────────────────────────────
