@@ -291,7 +291,6 @@ All under the **Admin** tab, admin-only:
 | Method | Use when |
 |---|---|
 | `bash install.sh` | Standard case — any VM/server/local Docker host. Interactive: installs prereqs if missing, configures `.env`, optional HTTPS (self-signed or your own cert), starts everything. |
-| `bash deploy-rancher.sh` | You're already running Rancher Desktop's local k3s and want the Kubernetes manifests instead of Compose. No TLS option; fixed NodePort 30080; single-replica only (the Docker-socket mount means you can never scale beyond 1 instance). |
 | Manual `docker compose up -d --build` | Full control — CI, scripted deploys, or custom port mapping via `docker-compose.override.yml`. Copy `.env.example` → `.env` and fill in `WEBHOOK_SECRET`, `HOST_SCRIPTS_DATA_PATH`, `UI_PASSWORD` by hand; TLS requires manually copying `nginx/nginx-tls.conf` over `nginx/nginx.conf` and placing `cert.pem`/`key.pem` in `nginx/certs/`. |
 
 **Compose services** (`docker-compose.yml`): `manager` (the app itself), `nginx` (reverse proxy —
@@ -299,12 +298,10 @@ only whichever file is currently named `nginx.conf` is active: plain HTTP by def
 variant), `ollama` (local LLM runtime for the addons feature, AMX-avoidance flags pre-set), and
 `health-checker` (idle cron container, used only by the Docker Health Check addon).
 
-**Required `.env` values** — see [README.md](README.md#manual-setup) for the table; the same
-three (`WEBHOOK_SECRET`, `HOST_SCRIPTS_DATA_PATH`, `UI_PASSWORD`) apply everywhere, Compose or k8s.
+**Required `.env` values** — see [README.md](README.md#manual-setup) for the table:
+`WEBHOOK_SECRET`, `HOST_SCRIPTS_DATA_PATH`, `UI_PASSWORD`.
 
-**Kubernetes specifics** not already in the README: `HOST_SCRIPTS_DATA_PATH` in
-`k8s/configmap-manager.yaml` must exactly match the `hostPath.path` used for the `scripts-data`
-volume in `deployment-manager.yaml` — if you relocate it, change both together. The Deployment
-uses `strategy: Recreate` (never scale replicas — only one instance can safely hold the Docker
-socket). No TLS variant exists for the k8s nginx config. Image tag is hardcoded to
-`dock-tools-manager:latest` with no per-environment parameterization out of the box.
+**Platform Apps** run as plain Docker containers alongside Scripts (see `dockerPlatformAppService.ts`)
+— always single-instance (the container name is fixed per app, so installing/updating always
+stops-and-recreates rather than scaling replicas), image tag is `<app-name>:latest`, built locally
+on the same host with no registry push/pull.

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import * as configService from '../services/platformAppConfigService';
 import * as platformAppService from '../services/platformAppService';
-import * as k8sService from '../services/k8sService';
+import * as dockerPlatformAppService from '../services/dockerPlatformAppService';
 import * as auditService from '../services/auditService';
 import { getUser } from '../utils/getUser';
 import { requireRole } from '../middleware/auth';
@@ -42,7 +42,7 @@ router.get('/', requireRole('admin', 'agent'), async (_req, res) => {
   const configs = configService.loadAll();
   const results = await Promise.all(configs.map(async config => ({
     config: sanitize(config),
-    status: await k8sService.getStatus(config.name),
+    status: await dockerPlatformAppService.getStatus(config.name),
   })));
   res.json(results);
 });
@@ -63,23 +63,23 @@ router.post('/', requireRole('admin'), async (req, res) => {
   const validationErr = validateFields(body);
   if (validationErr) return res.status(400).json({ error: validationErr });
 
-  // Guards against a name that collides with a Deployment/Service Platform Apps doesn't own —
-  // e.g. "manager", "nginx", "utility-tools-hub" — which applyDeployment/applyService would
-  // otherwise silently overwrite (the RBAC Role has no resourceNames restriction, so it's
-  // permitted to replace any Deployment/Service in the namespace by name).
+  // Guards against a name that collides with a container Platform Apps doesn't own — a Script
+  // already using that name (both register the bare name as a Docker network alias) or a stray
+  // container someone created by hand named "platform-app-<name>" — which apply() would
+  // otherwise silently stop and remove.
   //
-  // isNameTaken only expects a 404 for "not taken" — any other k8s API error (RBAC drift,
-  // API-server network blip) rejects here and must be caught explicitly: an uncaught rejection
-  // in an async Express handler crashes the whole process (Express 4 doesn't catch it, and
-  // there's no unhandledRejection handler), which nginx then surfaces as a 502.
+  // Any Docker Engine error here (socket hiccup, daemon restart mid-request) must be caught
+  // explicitly: an uncaught rejection in an async Express handler crashes the whole process
+  // (Express 4 doesn't catch it, and there's no unhandledRejection handler), which nginx then
+  // surfaces as a 502.
   try {
-    if (await k8sService.isNameTaken(body.name)) {
+    if (await dockerPlatformAppService.isNameTaken(body.name)) {
       return res.status(409).json({
-        error: `"${body.name}" collides with an existing Deployment/Service in the cluster that Platform Apps doesn't manage`,
+        error: `"${body.name}" collides with an existing container Platform Apps doesn't manage`,
       });
     }
   } catch (err: any) {
-    return res.status(500).json({ error: `Failed to check cluster for name collision: ${err?.message || err}` });
+    return res.status(500).json({ error: `Failed to check for a name collision: ${err?.message || err}` });
   }
 
   const config: PlatformAppConfig = {
@@ -141,8 +141,8 @@ router.put('/:name', requireRole('admin'), async (req, res) => {
     resources: body.resources ?? existing.resources,
   };
   // repo/name are immutable after creation — same convention as ScriptConfig — since changing
-  // either would silently detach this record from its already-cloned repo / already-applied
-  // k8s objects rather than actually re-pointing them.
+  // either would silently detach this record from its already-cloned repo / already-running
+  // container rather than actually re-pointing them.
 
   configService.save(updated);
   auditService.record(getUser(req), 'platform-app.updated', updated.name, [
@@ -150,12 +150,11 @@ router.put('/:name', requireRole('admin'), async (req, res) => {
     { field: 'hostPort', oldValue: existing.hostPort, newValue: updated.hostPort },
   ]);
 
-  res.json({ message: 'Updated. Applying to the cluster...' });
+  res.json({ message: 'Updated. Applying...' });
 
   setImmediate(async () => {
     try {
-      await k8sService.applyDeployment(updated);
-      await k8sService.applyService(updated);
+      await dockerPlatformAppService.apply(updated);
     } catch (err) {
       console.error(`[platform-apps] apply ${updated.name}:`, err);
     }
@@ -202,7 +201,7 @@ router.post('/:name/restart', requireRole('admin', 'agent'), async (req, res) =>
   const existing = configService.get(req.params.name);
   if (!existing) return res.status(404).json({ error: 'not found' });
   try {
-    await platformAppService.restart(existing.name);
+    await platformAppService.restart(existing);
     res.json({ message: 'restarted' });
   } catch (err: any) {
     res.status(500).json({ error: err?.message || String(err) });
@@ -228,7 +227,7 @@ router.post('/:name/update', requireRole('admin', 'agent'), async (req, res) => 
 router.get('/:name/logs', requireRole('admin', 'agent'), async (req, res) => {
   const existing = configService.get(req.params.name);
   if (!existing) return res.status(404).json({ error: 'not found' });
-  const logs = await k8sService.getLogs(existing.name);
+  const logs = await dockerPlatformAppService.getLogs(existing.name);
   res.json({ logs });
 });
 

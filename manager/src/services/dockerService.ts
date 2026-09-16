@@ -5,6 +5,7 @@ import * as crypto from 'crypto';
 import { ScriptConfig, ContainerStatus, DEPS_SENTINEL } from '../types';
 import * as logService from './logService';
 import * as heartbeatService from './heartbeatService';
+import { demuxLogs } from '../utils/dockerLogs';
 
 const docker = new Dockerode({ socketPath: '/var/run/docker.sock' });
 
@@ -434,17 +435,4 @@ export async function getLogs(name: string, tail = 200): Promise<string> {
     stdout: true, stderr: true, tail, timestamps: true,
   }) as unknown as Buffer;
   return demuxLogs(buf);
-}
-
-function demuxLogs(buf: Buffer): string {
-  const lines: string[] = [];
-  let offset = 0;
-  while (offset + 8 <= buf.length) {
-    const size = buf.readUInt32BE(offset + 4);
-    offset += 8;
-    if (offset + size > buf.length) break;
-    lines.push(buf.slice(offset, offset + size).toString('utf8'));
-    offset += size;
-  }
-  return lines.join('');
 }

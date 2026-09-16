@@ -45,7 +45,7 @@ app.use('/webhook', (req, _res, next) => {
 });
 app.use('/webhook', webhooksRouter);
 
-// ── Public: health check (k8s probes) ───────────────────────────────────────
+// ── Public: health check (e.g. Docker HEALTHCHECK, uptime monitors) ─────────
 app.get('/healthz', (_req, res) => res.json({ ok: true }));
 
 // ── Parse body ───────────────────────────────────────────────────────────────

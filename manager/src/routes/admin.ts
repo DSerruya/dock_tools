@@ -1952,9 +1952,9 @@ router.post('/sql-test/clean', async (_req, res) => {
 
 // ── Repo System Tests (system-tests/) ──────────────────────────────────────────
 //
-// Runs the repo's system-tests/ suite — static checks that manager/RBAC/nginx/Platform-Apps
-// still match the architecture assumptions documented alongside them (single-node + local
-// dockerd, no registry, namespace-scoped RBAC, the isNameTaken() collision guard, etc.).
+// Runs the repo's system-tests/ suite — static checks that manager/nginx/Platform-Apps still
+// match the architecture assumptions documented alongside them (single-node + local dockerd, no
+// registry, the isNameTaken() collision guard, etc.).
 //
 // Three things make this trickier than the other admin ops tools on this tab: jest is a
 // devDependency and this image's own Dockerfile runs `npm prune --omit=dev` after build, so it's
@@ -1962,8 +1962,8 @@ router.post('/sql-test/clean', async (_req, res) => {
 // manager/Dockerfile's own build context — so it was never copied into this image either; and the
 // data volume (ADMIN_DATA_DIR) is a hostPath bind mount that has already shown one other npm
 // quirk on this project (broken .bin symlinks). Rather than reworking the image build (bigger
-// blast radius: self-update's buildImage(), deploy-rancher.sh and the README's manual-build
-// instructions all assume the build context is manager/ alone), this clones a fresh shallow copy
+// blast radius: self-update's buildImage() and the README's manual-build instructions all assume
+// the build context is manager/ alone), this clones a fresh shallow copy
 // of PROJECT_REPO on every run — same mechanism runUpdate() already uses above — so a click always
 // tests whatever is actually on the configured branch.
 //

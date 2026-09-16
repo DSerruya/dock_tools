@@ -2,7 +2,7 @@ import Dockerode from 'dockerode';
 import * as tar from 'tar-fs';
 import { PlatformAppConfig, GitSource } from '../types';
 import * as gitService from './gitService';
-import * as k8sService from './k8sService';
+import * as dockerPlatformAppService from './dockerPlatformAppService';
 
 const docker = new Dockerode({ socketPath: '/var/run/docker.sock' });
 
@@ -41,21 +41,20 @@ async function buildImage(config: PlatformAppConfig): Promise<void> {
 export async function install(config: PlatformAppConfig): Promise<void> {
   await gitService.clone(gitSource(config));
   await buildImage(config);
-  await k8sService.applyDeployment(config);
-  await k8sService.applyService(config);
+  await dockerPlatformAppService.apply(config);
 }
 
 export async function update(config: PlatformAppConfig): Promise<void> {
   await gitService.pull(gitSource(config));
   await buildImage(config);
-  await k8sService.forceRollout(config.name);
+  await dockerPlatformAppService.apply(config);
 }
 
-export async function start(name: string): Promise<void>   { await k8sService.scaleDeployment(name, 1); }
-export async function stop(name: string): Promise<void>     { await k8sService.scaleDeployment(name, 0); }
-export async function restart(name: string): Promise<void>  { await k8sService.forceRollout(name); }
+export async function start(name: string): Promise<void>          { await dockerPlatformAppService.start(name); }
+export async function stop(name: string): Promise<void>           { await dockerPlatformAppService.stop(name); }
+export async function restart(config: PlatformAppConfig): Promise<void> { await dockerPlatformAppService.apply(config); }
 
 export async function uninstall(name: string): Promise<void> {
-  await k8sService.deleteApp(name);
+  await dockerPlatformAppService.deleteApp(name);
   gitService.deleteClone(`platform-apps/${name}`);
 }

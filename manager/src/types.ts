@@ -65,36 +65,40 @@ export interface GitSource {
   repoToken?: string;
 }
 
-// A k8s-deployed "platform app" — the less-sandboxed sibling of ScriptConfig for apps that need
-// docker.sock, a persistent data volume, or a fixed host port (e.g. utility-tools-hub), none of
-// which ScriptConfig's dockerService.ts ever grants a plain script. Kept as a separate type
-// rather than new ScriptConfig fields so that elevated access stays an explicit, visible opt-in
-// per app instead of something bolted onto the sandboxed-by-default script model.
+// A Docker-deployed "platform app" (see dockerPlatformAppService.ts) — the less-sandboxed sibling
+// of ScriptConfig for apps that need docker.sock, a persistent data volume, or a fixed host port
+// (e.g. utility-tools-hub), none of which ScriptConfig's dockerService.ts ever grants a plain
+// script. Kept as a separate type rather than new ScriptConfig fields so that elevated access
+// stays an explicit, visible opt-in per app instead of something bolted onto the
+// sandboxed-by-default script model.
 export interface PlatformAppConfig {
   name: string;
   repo: string;
   branch: string;
   repoToken?: string;
   containerPort: number;      // port the app listens on inside its container
-  hostPort?: number;          // published on the k8s node via the pod's hostPort — same
-                               // "any host port" flexibility ScriptConfig's PortBindings give
-                               // plain scripts, since k3s's NodePort range can't cover arbitrary
-                               // ports like 9002
+  hostPort?: number;          // published on the host via a Docker PortBinding — same "any host
+                               // port" flexibility ScriptConfig's PortBindings already give plain
+                               // scripts. Left unset, the app is reachable only from other
+                               // containers on the same Docker network (by its name as a network
+                               // alias), never from the host/browser directly.
   env?: Record<string, string>;
   needsDockerSock?: boolean;  // mount /var/run/docker.sock — only for apps that must drive
                                // sibling containers (e.g. utility-tools-hub's onboarding runner)
-  needsDataVolume?: boolean;  // mount a persistent hostPath at /app/data
-  healthCheckPath?: string;   // e.g. "/api/health" — when set, wires readiness+liveness httpGet
-                               // probes on this path at containerPort. Left unset, the pod gets
-                               // no probes at all (k8s treats it as always-ready once started).
+  needsDataVolume?: boolean;  // mount a persistent host-backed volume at /app/data
+  healthCheckPath?: string;   // e.g. "/api/health" — when set, dockerPlatformAppService polls this
+                               // path at containerPort to gate getStatus() ("running" vs "error")
+                               // and to auto-restart the container after repeated failures. Left
+                               // unset, the app is always considered "running" once started.
   resources?: PlatformAppResources;
   createdAt: string;
   lastSync?: string;
 }
 
-// Plain cpu/memory quantity strings (k8s format, e.g. "250m", "256Mi") — passed straight through
-// to the container spec, same as everywhere else in k8s tooling. All optional: a bare {} (or an
-// undefined resources field entirely) means "no request/limit set", same as omitting it in yaml.
+// Plain cpu/memory quantity strings (k8s format, e.g. "250m", "256Mi") — kept from Platform Apps'
+// original k8s-backed design so existing configs/UI need no changes; dockerPlatformAppService.ts
+// parses these into the equivalent Docker HostConfig fields (NanoCpus, Memory, etc). All optional:
+// a bare {} (or an undefined resources field entirely) means "no request/limit set".
 export interface PlatformAppResources {
   requests?: { cpu?: string; memory?: string };
   limits?: { cpu?: string; memory?: string };

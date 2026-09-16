@@ -526,7 +526,7 @@ function renderPlatformAppCard({ config, status }) {
 
   const portMeta = config.hostPort
     ? `<span>🌐 Host port ${config.hostPort} → :${config.containerPort}</span>`
-    : `<span>🔒 :${config.containerPort} (cluster-internal only)</span>`;
+    : `<span>🔒 :${config.containerPort} (container-network only)</span>`;
 
   const meta = [
     `<span>📁 ${escHtml((config.repo || '').replace('https://github.com/', ''))}</span>`,
@@ -685,7 +685,7 @@ function editPlatformApp(name) {
   document.getElementById('pa-modal-title').textContent  = `Edit Platform App — ${name}`;
   document.getElementById('pa-modal-submit').textContent = 'Save Changes';
   // Name and repo are immutable after creation — changing either would silently detach this
-  // record from its already-cloned repo / already-applied k8s objects rather than re-pointing them.
+  // record from its already-cloned repo / already-running container rather than re-pointing them.
   document.getElementById('pa-name').disabled = true;
   document.getElementById('pa-name-hint').style.display = '';
   document.getElementById('pa-repo').disabled = true;

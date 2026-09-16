@@ -22,7 +22,7 @@ A self-hosted web dashboard for running and managing Python, Ruby, Node.js, and 
 - **Audit log** — every config change recorded with before/after values
 - **Export / Import** — JSON config snapshots for backup or migration
 - **Self-update** — Admin tab button clones latest code, rebuilds the Docker image, and restarts automatically
-- **Kubernetes ready** — Kustomize manifests included for Rancher / k3s deployments
+- **Platform Apps** — admin-managed Docker containers for apps that need docker.sock, a persistent data volume, or a fixed host port (beyond what a sandboxed script gets), with git install, health checks, and resource limits
 
 ---
 
@@ -102,34 +102,6 @@ In your script's GitHub repo → **Settings → Webhooks → Add webhook**:
 
 ---
 
-## Kubernetes / Rancher
-
-Kustomize manifests are in `k8s/`. Apply with:
-
-```bash
-# Create the namespace and secrets first
-kubectl create namespace dock-tools
-kubectl create secret generic dock-tools-secret \
-  --from-literal=WEBHOOK_SECRET=<your-secret> \
-  --from-literal=UI_PASSWORD=<your-password> \
-  -n dock-tools
-
-# Deploy
-kubectl apply -k k8s/
-```
-
-The manager deployment uses `imagePullPolicy: Never` and expects a locally built image tagged `dock-tools-manager:latest`:
-
-```bash
-docker build \
-  --build-arg GIT_COMMIT=$(git rev-parse HEAD) \
-  --build-arg BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
-  -t dock-tools-manager:latest ./manager
-kubectl rollout restart deployment/manager -n dock-tools
-```
-
----
-
 ## Self-Update
 
 In the Admin tab → **System** card:
@@ -162,7 +134,7 @@ dock_tools/
 │   │   └── public/   # index.html + app.js (vanilla JS)
 │   └── Dockerfile
 ├── nginx/            # Reverse proxy config (HTTP + TLS variants)
-├── k8s/              # Kubernetes / Kustomize manifests
+├── system-tests/     # Repo System Tests suite (run from the Admin tab)
 ├── examples/         # Sample Python and Ruby scripts
 ├── install.sh        # Interactive installer
 └── docker-compose.yml

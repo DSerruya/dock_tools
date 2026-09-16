@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
 # Dock Tools — Guided Installer
-# Supports: Ubuntu, Debian, Rancher/K8s
+# Supports: Ubuntu, Debian
 # Run as a user with sudo privileges.
 # =============================================================================
 
@@ -55,7 +55,7 @@ echo "  ██║  ██║██║   ██║██║     ██╔═█�
 echo "  ██████╔╝╚██████╔╝╚██████╗██║  ██╗       ██║   ╚██████╔╝╚██████╔╝███████╗███████║"
 echo "  ╚═════╝  ╚═════╝  ╚═════╝╚═╝  ╚═╝       ╚═╝    ╚═════╝  ╚═════╝╚══════╝╚══════╝"
 echo -e "${RESET}"
-echo -e "  ${BOLD}Guided Installer${RESET} — Ubuntu / Debian / Rancher / K8s\n"
+echo -e "  ${BOLD}Guided Installer${RESET} — Ubuntu / Debian\n"
 
 # ── Detect OS ─────────────────────────────────────────────────────────────────
 OS_ID="unknown"
@@ -65,14 +65,10 @@ if [[ -f /etc/os-release ]]; then
 fi
 
 # ── Deployment target ─────────────────────────────────────────────────────────
-section "Step 1 — Deployment Target"
-echo    "  1) Docker Compose  — Ubuntu / Debian (single VM)"
-echo    "  2) Rancher / K8s   — Kubernetes cluster"
-echo ""
-ask "Select deployment target [1/2]:"
-read -r HOST_TYPE
-[[ "$HOST_TYPE" =~ ^[12]$ ]] || error "Invalid selection. Enter 1 or 2."
-[[ "$HOST_TYPE" == "1" ]] && HOST_LABEL="Docker Compose (${OS_ID^})" || HOST_LABEL="Rancher / Kubernetes"
+# Docker Compose is the only supported deployment mode — the Rancher/K8s path (and the k8s/
+# Kustomize manifests it applied) was removed since nothing in production ever ran on it.
+HOST_TYPE="1"
+HOST_LABEL="Docker Compose (${OS_ID^})"
 success "Target: $HOST_LABEL"
 
 # Shared variables
@@ -87,8 +83,6 @@ MANAGER_TLS_PORT=443
 USE_TLS=false
 BASE_URL=""
 PROTOCOL="http"
-LB_IP=""
-NODE_IP="localhost"
 
 # =============================================================================
 # DOCKER COMPOSE PATH (Ubuntu / Debian)
@@ -596,138 +590,6 @@ EOF
     success "Systemd service enabled — Dock Tools will start on boot"
   fi
 
-# =============================================================================
-# RANCHER / K8S PATH
-# =============================================================================
-else
-
-  # ── Prerequisites ─────────────────────────────────────────────────────────────
-  section "Step 2 — Prerequisites"
-  require_cmd kubectl
-  require_cmd docker
-  require_cmd git
-  require_cmd curl
-
-  KUBE_CTX=$(kubectl config current-context 2>/dev/null || echo "none")
-  info "Active kubectl context: ${KUBE_CTX}"
-  confirm "Continue with this context?" || error "Switch kubectl context and re-run."
-
-  # ── Install directory ─────────────────────────────────────────────────────────
-  section "Step 3 — Install Directory"
-  DEFAULT_DIR="$HOME/dock-tools"
-  ask "Where should Dock Tools source be cloned? [${DEFAULT_DIR}]:"
-  read -r INSTALL_DIR
-  INSTALL_DIR="${INSTALL_DIR:-$DEFAULT_DIR}"
-  INSTALL_DIR="${INSTALL_DIR%/}"
-
-  if [[ -d "$INSTALL_DIR/.git" ]]; then
-    warn "Existing repo found — pulling latest..."
-    git -C "$INSTALL_DIR" pull || warn "git pull failed — continuing."
-  elif [[ ! -d "$INSTALL_DIR" ]]; then
-    info "Cloning Dock Tools..."
-    git clone https://github.com/DSerruya/dock_tools.git "$INSTALL_DIR" \
-      || error "Git clone failed. Check internet connectivity."
-  fi
-  success "Source ready at $INSTALL_DIR"
-
-  # ── Configuration ─────────────────────────────────────────────────────────────
-  section "Step 4 — Configuration"
-
-  DEFAULT_SECRET=$(openssl rand -hex 32 2>/dev/null \
-    || head -c 32 /dev/urandom | base64 | tr -dc 'a-f0-9' | head -c 32)
-  ask "Webhook secret (press Enter to auto-generate):"
-  read -r WEBHOOK_SECRET
-  WEBHOOK_SECRET="${WEBHOOK_SECRET:-$DEFAULT_SECRET}"
-  success "Webhook secret set"
-
-  DETECTED_TZ=$(timedatectl show --property=Timezone --value 2>/dev/null || echo "UTC")
-  ask "Timezone [${DETECTED_TZ}]:"
-  read -r DEFAULT_TIMEZONE
-  DEFAULT_TIMEZONE="${DEFAULT_TIMEZONE:-$DETECTED_TZ}"
-  success "Timezone: $DEFAULT_TIMEZONE"
-
-  while [[ -z "$UI_PASSWORD" ]]; do
-    ask "Web UI password (required):"
-    read -rsp "" UI_PASSWORD; echo ""
-    [[ -z "$UI_PASSWORD" ]] && warn "Password cannot be empty."
-  done
-  ask "Confirm password:"
-  read -rsp "" UI_PASSWORD_CONFIRM; echo ""
-  [[ "$UI_PASSWORD" == "$UI_PASSWORD_CONFIRM" ]] || error "Passwords do not match."
-  success "Credentials set (admin / ***)"
-
-  DEFAULT_SCRIPTS_DATA="/opt/dock-tools/scripts-data"
-  ask "Host scripts-data path [${DEFAULT_SCRIPTS_DATA}]:"
-  read -r SCRIPTS_DATA_DIR_INPUT
-  SCRIPTS_DATA_DIR="${SCRIPTS_DATA_DIR_INPUT:-$DEFAULT_SCRIPTS_DATA}"
-
-  if [[ ! -d "$SCRIPTS_DATA_DIR" ]]; then
-    info "Creating $SCRIPTS_DATA_DIR ..."
-    sudo mkdir -p "$SCRIPTS_DATA_DIR" && sudo chown "$USER":"$USER" "$SCRIPTS_DATA_DIR" \
-      || error "Cannot create $SCRIPTS_DATA_DIR. Run: sudo mkdir -p $SCRIPTS_DATA_DIR && sudo chown $USER:$USER $SCRIPTS_DATA_DIR"
-  fi
-  success "scripts-data path validated: $SCRIPTS_DATA_DIR"
-
-  # Patch configmap with correct values
-  sed -i.bak \
-    -e "s|DEFAULT_TIMEZONE: UTC|DEFAULT_TIMEZONE: ${DEFAULT_TIMEZONE}|" \
-    -e "s|HOST_SCRIPTS_DATA_PATH:.*|HOST_SCRIPTS_DATA_PATH: \"${SCRIPTS_DATA_DIR}\"|" \
-    "${INSTALL_DIR}/k8s/configmap-manager.yaml"
-  success "ConfigMap patched"
-
-  # ── Build image ────────────────────────────────────────────────────────────────
-  section "Step 5 — Build Docker Image"
-  info "Building dock-tools-manager image (this may take a few minutes)..."
-  docker build -t dock-tools-manager:latest "${INSTALL_DIR}/manager" \
-    || error "Docker build failed. Check Dockerfile and internet access."
-  success "Image built: dock-tools-manager:latest"
-
-  # ── Deploy to Kubernetes ───────────────────────────────────────────────────────
-  section "Step 6 — Deploy to Kubernetes"
-
-  kubectl apply -f "${INSTALL_DIR}/k8s/namespace.yaml"
-  success "Namespace dock-tools ready"
-
-  kubectl delete secret dock-tools-secret -n dock-tools --ignore-not-found &>/dev/null
-  kubectl create secret generic dock-tools-secret \
-    --namespace dock-tools \
-    --from-literal=WEBHOOK_SECRET="$WEBHOOK_SECRET" \
-    --from-literal=UI_PASSWORD="$UI_PASSWORD"
-  success "Secret dock-tools-secret created"
-
-  kubectl apply -k "${INSTALL_DIR}/k8s/"
-  success "Manifests applied"
-
-  # ── Wait for rollout ───────────────────────────────────────────────────────────
-  section "Step 7 — Validate Deployment"
-
-  info "Waiting for manager rollout..."
-  kubectl rollout status deployment/dock-tools-manager -n dock-tools --timeout=120s \
-    || warn "Manager not ready yet — run: kubectl get pods -n dock-tools"
-
-  info "Waiting for nginx rollout..."
-  kubectl rollout status deployment/dock-tools-nginx -n dock-tools --timeout=120s \
-    || warn "Nginx not ready yet"
-
-  echo ""
-  kubectl get pods -n dock-tools
-  echo ""
-  kubectl get svc  -n dock-tools
-  echo ""
-
-  NODE_IP=$(kubectl get nodes \
-    -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' \
-    2>/dev/null || echo "localhost")
-  LB_IP=$(kubectl get svc dock-tools-nginx -n dock-tools \
-    -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
-  MANAGER_PORT=30080
-  BASE_URL="http://${NODE_IP}:${MANAGER_PORT}"
-
-  if wait_for "$BASE_URL" 20 3; then
-    success "Web UI is responding at $BASE_URL"
-  else
-    warn "Web UI not responding yet — try again in a minute."
-  fi
 fi
 
 # =============================================================================
@@ -741,10 +603,6 @@ echo -e "  ${BOLD}Username:${RESET}        ${UI_USERNAME}"
 echo -e "  ${BOLD}Password:${RESET}        ${UI_PASSWORD}"
 echo -e "  ${BOLD}Webhook secret:${RESET}  ${WEBHOOK_SECRET}"
 echo ""
-if [[ "$HOST_TYPE" == "2" ]]; then
-  [[ -n "${LB_IP:-}" ]] && echo -e "  ${BOLD}LoadBalancer:${RESET}    ${GREEN}http://${LB_IP}${RESET}"
-  echo -e "  ${BOLD}NodePort:${RESET}        ${GREEN}http://${NODE_IP}:30080${RESET}"
-fi
 if [[ "${USE_TLS:-false}" == "true" ]]; then
   echo -e "  ${BOLD}HTTPS:${RESET}           ${GREEN}https://localhost:${MANAGER_TLS_PORT}${RESET}"
   echo -e "  ${YELLOW}Browser will show a security warning (self-signed cert).${RESET}"
