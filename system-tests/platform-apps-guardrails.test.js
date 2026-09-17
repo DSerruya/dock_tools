@@ -307,3 +307,61 @@ describe('platformAppService wires install/update/restart/uninstall through dock
     expect(deleteAppIdx).toBeLessThan(deleteCloneIdx);
   });
 });
+
+// Regression tests for "how do I know a Platform App is still pulling/building vs. ready to
+// restart" — the container's own runtime status stays whatever it was BEFORE an update for the
+// entire clone/pull+build+apply duration (apply() only swaps in the new image at the very end),
+// so status alone can never show build progress. platformAppService.buildState fills that gap.
+describe('Platform Apps surface real install/update progress, not just container status', () => {
+  test('install and update both run through the shared build-state tracker, not bare calls', () => {
+    const installBody = platformAppServiceSrc.slice(
+      platformAppServiceSrc.indexOf('export async function install'),
+      platformAppServiceSrc.indexOf('export async function update'),
+    );
+    const updateBody = platformAppServiceSrc.slice(
+      platformAppServiceSrc.indexOf('export async function update'),
+      platformAppServiceSrc.indexOf('export async function start'),
+    );
+    expect(installBody).toMatch(/runBuild\(config\.name, 'installing'/);
+    expect(updateBody).toMatch(/runBuild\(config\.name, 'updating'/);
+  });
+
+  test('a failed build keeps its error on buildState instead of silently clearing (so the UI keeps showing it)', () => {
+    const fnBody = platformAppServiceSrc.slice(
+      platformAppServiceSrc.indexOf('async function runBuild'),
+      platformAppServiceSrc.indexOf('export async function install'),
+    );
+    expect(fnBody).toMatch(/buildState\.delete\(name\)/);       // success clears it
+    expect(fnBody).toMatch(/error:\s*err\?\.message/);           // failure keeps it, with the error
+  });
+
+  test('isDeploying is false once a build has failed — a failed attempt has nothing left running to race with', () => {
+    const fnBody = platformAppServiceSrc.slice(
+      platformAppServiceSrc.indexOf('export function isDeploying'),
+      platformAppServiceSrc.indexOf('async function runBuild'),
+    );
+    expect(fnBody).toMatch(/!state\.error/);
+  });
+
+  test('GET /api/platform-apps includes each app\'s build state alongside its container status', () => {
+    expect(platformAppsRouteSrc).toMatch(/build:\s*platformAppService\.getBuildState\(config\.name\)/);
+  });
+
+  test('start/stop/restart/update/edit are all gated on isDeploying, so they cannot race an in-flight install/update', () => {
+    const gatedRoutes = [
+      "router.put('/:name'",
+      "router.post('/:name/start'",
+      "router.post('/:name/stop'",
+      "router.post('/:name/restart'",
+      "router.post('/:name/update'",
+    ];
+    gatedRoutes.forEach(routeStart => {
+      const idx = platformAppsRouteSrc.indexOf(routeStart);
+      expect(idx).toBeGreaterThan(-1);
+      const nextRouteIdx = platformAppsRouteSrc.indexOf('router.', idx + routeStart.length);
+      const routeBody = platformAppsRouteSrc.slice(idx, nextRouteIdx > -1 ? nextRouteIdx : undefined);
+      expect(routeBody).toMatch(/platformAppService\.isDeploying\(existing\.name\)/);
+      expect(routeBody).toMatch(/res\.status\(409\)/);
+    });
+  });
+});

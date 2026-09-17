@@ -485,18 +485,17 @@ let cachedPlatformApps    = [];
 const pendingPlatformApps = new Set(); // names with an in-flight start/stop/restart call
 
 // Install/update run in the background (git clone + docker build — can take several minutes for
-// a real app, see the utility-tools-hub install) with no server-side "in progress" flag, so this
-// tracks it purely client-side: set when the request that kicks off the background job succeeds,
-// cleared once a subsequent poll sees the app is no longer 'not_deployed' (done, one way or
-// another). DEPLOY_TIMEOUT_MS is a safety net so a build that fails without ever changing status
-// doesn't leave the dot stuck yellow forever — after that, it just falls back to the real status.
-const deployingPlatformApps = new Map(); // name -> Date.now() when deploy started
-const DEPLOY_TIMEOUT_MS = 10 * 60 * 1000;
+// a real app, see the utility-tools-hub install). The server tracks real progress for this
+// (platformAppService's buildState, surfaced as `build` on each GET /api/platform-apps entry) —
+// the container's own `status` stays whatever it was before an update for the app's entire
+// duration (apply() only swaps in the new image at the very end), so `status` alone can't show
+// "still pulling/building" vs "ready". This just tracks, per app, the last `build` we saw so a
+// transition to "gone" (success) or "error" (failure) can be toasted exactly once.
+const platformAppDeployTracking = new Map(); // name -> { pending: bool, lastErrorKey: string|null }
 
-function _paDeployStart(name) { deployingPlatformApps.set(name, Date.now()); renderPlatformApps(cachedPlatformApps); }
-
-function paStatusDotClass(status, isDeploying) {
-  if (isDeploying) return 'status-deploying';
+function paStatusDotClass(status, build) {
+  if (build?.error) return 'status-error';
+  if (build) return 'status-deploying';
   return status === 'running'      ? 'status-running'
     :    status === 'error'        ? 'status-error'
     :    status === 'not_deployed' ? 'status-not_deployed'
@@ -505,15 +504,20 @@ function paStatusDotClass(status, isDeploying) {
 
 async function loadPlatformApps() {
   try {
-    cachedPlatformApps = await api('GET', '/api/platform-apps');
-    const now = Date.now();
-    cachedPlatformApps.forEach(({ config, status }) => {
-      const startedAt = deployingPlatformApps.get(config.name);
-      if (startedAt === undefined) return;
-      if (status !== 'not_deployed' || now - startedAt > DEPLOY_TIMEOUT_MS) {
-        deployingPlatformApps.delete(config.name);
+    const items = await api('GET', '/api/platform-apps');
+    items.forEach(({ config, build }) => {
+      const track = platformAppDeployTracking.get(config.name) || { pending: false, lastErrorKey: null };
+      const errorKey = build?.error ? `${build.phase}:${build.startedAt}` : null;
+
+      if (errorKey && errorKey !== track.lastErrorKey) {
+        toast(`${config.name}: ${build.phase} failed — ${build.error}`, 'error');
+      } else if (!build && track.pending) {
+        toast(`${config.name} is ready`, 'success');
       }
+
+      platformAppDeployTracking.set(config.name, { pending: !!build && !build.error, lastErrorKey: errorKey });
     });
+    cachedPlatformApps = items;
     renderPlatformApps(cachedPlatformApps);
   } catch (e) {
     document.getElementById('platform-apps-container').innerHTML =
@@ -538,9 +542,9 @@ function renderPlatformApps(items) {
   container.innerHTML = `<div class="scripts-grid">${items.map(renderPlatformAppCard).join('')}${addTile}</div>`;
 }
 
-function renderPlatformAppCard({ config, status }) {
+function renderPlatformAppCard({ config, status, build }) {
   const isPending   = pendingPlatformApps.has(config.name);
-  const isDeploying = deployingPlatformApps.has(config.name);
+  const isDeploying = !!build && !build.error; // clone/build/apply actively running in the background
   const busy        = isPending || isDeploying;
   // Start/Stop/Restart all require an existing container — not_deployed means there isn't one
   // yet (or the install/update never finished), same case the "no container — install it first"
@@ -563,8 +567,10 @@ function renderPlatformAppCard({ config, status }) {
   ].filter(Boolean).join('');
 
   const deployingNotice = isDeploying
-    ? `<div style="color:var(--yellow);font-size:11px;margin-top:6px">⏳ Cloning/building in background — this can take a few minutes for a full app build.</div>`
-    : '';
+    ? `<div style="color:var(--yellow);font-size:11px;margin-top:6px">⏳ ${build.phase === 'installing' ? 'Cloning/building' : 'Pulling latest and rebuilding'} — started ${relativeTime(build.startedAt)}. Can take a few minutes; Restart will unlock once it's ready.</div>`
+    : build?.error
+      ? `<div style="color:var(--red);font-size:11px;margin-top:6px">✖ ${build.phase === 'installing' ? 'Install' : 'Update'} failed: ${escHtml(build.error)}</div>`
+      : '';
 
   const writeActions = canWrite() ? `
     <button class="btn btn-ghost btn-sm" onclick="startPlatformApp('${config.name}')"   ${canStart   ? '' : 'disabled'}>▶ Start</button>
@@ -580,13 +586,14 @@ function renderPlatformAppCard({ config, status }) {
     ? `<button class="btn btn-danger btn-sm" onclick="deletePlatformApp('${config.name}')">🗑</button>`
     : '';
 
-  const statusLabel = isDeploying ? 'deploying' : status.replace('_', ' ');
+  const statusLabel = isDeploying ? `${build.phase === 'installing' ? 'installing' : 'updating'}` : build?.error ? `${build.phase} failed` : status.replace('_', ' ');
+  const dotTitle     = isDeploying ? build.phase : build?.error ? `${build.phase} failed` : status;
 
   return `
     <div class="card">
       <div class="card-header">
         <div class="card-title">
-          <span class="status-dot ${paStatusDotClass(status, isDeploying)}" title="${isDeploying ? 'deploying' : status}"></span>
+          <span class="status-dot ${paStatusDotClass(status, build)}" title="${dotTitle}"></span>
           <span class="card-name">${escHtml(config.name)}</span>
         </div>
         <span class="status-label">${statusLabel}</span>
@@ -628,7 +635,6 @@ async function updatePlatformApp(name) {
   try {
     await api('POST', `/api/platform-apps/${name}/update`);
     toast(`${name} updating in background…`, 'info');
-    _paDeployStart(name);
   }
   catch (e) { toast(e.message, 'error'); }
   finally { _paPendingEnd(name); }
@@ -774,11 +780,9 @@ async function submitPlatformAppModal() {
     if (platformAppModalMode === 'add') {
       await api('POST', '/api/platform-apps', { name, repo, ...body });
       toast(`"${name}" added — cloning and building in background…`, 'success');
-      _paDeployStart(name);
     } else {
       await api('PUT', `/api/platform-apps/${editingPlatformAppName}`, body);
       toast(`"${editingPlatformAppName}" updated`, 'success');
-      _paDeployStart(editingPlatformAppName);
     }
     closePlatformAppModal();
     setTimeout(loadPlatformApps, 1500);

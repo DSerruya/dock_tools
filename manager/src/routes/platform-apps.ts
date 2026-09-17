@@ -43,6 +43,7 @@ router.get('/', requireRole('admin', 'agent'), async (_req, res) => {
   const results = await Promise.all(configs.map(async config => ({
     config: sanitize(config),
     status: await dockerPlatformAppService.getStatus(config.name),
+    build: platformAppService.getBuildState(config.name),
   })));
   res.json(results);
 });
@@ -123,6 +124,9 @@ router.post('/', requireRole('admin'), async (req, res) => {
 router.put('/:name', requireRole('admin'), async (req, res) => {
   const existing = configService.get(req.params.name);
   if (!existing) return res.status(404).json({ error: 'not found' });
+  if (platformAppService.isDeploying(existing.name)) {
+    return res.status(409).json({ error: `"${existing.name}" is still installing/updating — wait for it to finish` });
+  }
 
   const body = req.body as Partial<PlatformAppConfig>;
   const validationErr = validateFields(body);
@@ -175,9 +179,16 @@ router.delete('/:name', requireRole('admin'), async (req, res) => {
   res.json({ message: 'deleted' });
 });
 
+// Start/stop/restart/update are all gated on isDeploying(): an in-flight install/update ends with
+// its own apply() (stop+remove+create+start), so letting one of these race it could create two
+// containers of the same name at once or leave the container the update just swapped in
+// immediately stopped again.
 router.post('/:name/start', requireRole('admin', 'agent'), async (req, res) => {
   const existing = configService.get(req.params.name);
   if (!existing) return res.status(404).json({ error: 'not found' });
+  if (platformAppService.isDeploying(existing.name)) {
+    return res.status(409).json({ error: `"${existing.name}" is still installing/updating` });
+  }
   try {
     await platformAppService.start(existing.name);
     res.json({ message: 'started' });
@@ -189,6 +200,9 @@ router.post('/:name/start', requireRole('admin', 'agent'), async (req, res) => {
 router.post('/:name/stop', requireRole('admin', 'agent'), async (req, res) => {
   const existing = configService.get(req.params.name);
   if (!existing) return res.status(404).json({ error: 'not found' });
+  if (platformAppService.isDeploying(existing.name)) {
+    return res.status(409).json({ error: `"${existing.name}" is still installing/updating` });
+  }
   try {
     await platformAppService.stop(existing.name);
     res.json({ message: 'stopped' });
@@ -200,6 +214,9 @@ router.post('/:name/stop', requireRole('admin', 'agent'), async (req, res) => {
 router.post('/:name/restart', requireRole('admin', 'agent'), async (req, res) => {
   const existing = configService.get(req.params.name);
   if (!existing) return res.status(404).json({ error: 'not found' });
+  if (platformAppService.isDeploying(existing.name)) {
+    return res.status(409).json({ error: `"${existing.name}" is still installing/updating` });
+  }
   try {
     await platformAppService.restart(existing);
     res.json({ message: 'restarted' });
@@ -211,6 +228,9 @@ router.post('/:name/restart', requireRole('admin', 'agent'), async (req, res) =>
 router.post('/:name/update', requireRole('admin', 'agent'), async (req, res) => {
   const existing = configService.get(req.params.name);
   if (!existing) return res.status(404).json({ error: 'not found' });
+  if (platformAppService.isDeploying(existing.name)) {
+    return res.status(409).json({ error: `"${existing.name}" is already installing/updating` });
+  }
 
   res.json({ message: 'Pulling and rebuilding in background...' });
 

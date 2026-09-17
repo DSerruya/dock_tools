@@ -106,7 +106,22 @@ export interface PlatformAppResources {
 
 export type PlatformAppRuntimeStatus = 'running' | 'stopped' | 'error' | 'not_deployed';
 
+export type PlatformAppBuildPhase = 'installing' | 'updating';
+
+// Tracks an in-flight (or last-failed) clone/pull+build+apply attempt — separate from
+// PlatformAppRuntimeStatus because the container backing `status` keeps running the OLD image for
+// the entire duration of an update (apply() only swaps it in at the very end), so `status` alone
+// gives no visibility into "still pulling/building" vs "ready". Absent once a build finishes
+// successfully; kept with `error` set after a failure so the failure stays visible until the next
+// install/update attempt overwrites it.
+export interface PlatformAppBuildState {
+  phase: PlatformAppBuildPhase;
+  startedAt: string; // ISO
+  error?: string;
+}
+
 export interface PlatformAppStatus {
   config: PlatformAppConfig;
   status: PlatformAppRuntimeStatus;
+  build?: PlatformAppBuildState;
 }
