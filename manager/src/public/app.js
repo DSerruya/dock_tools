@@ -2168,7 +2168,7 @@ function collectScriptFormBody() {
   const token    = document.getElementById('f-token').value.trim();
 
   const env = {};
-  document.querySelectorAll('.env-row').forEach(row => {
+  document.querySelectorAll('#env-rows .env-row').forEach(row => {
     const k = row.querySelector('.env-key').value.trim();
     const v = row.querySelector('.env-val').value.trim();
     if (k) env[k] = v;
