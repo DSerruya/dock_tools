@@ -1789,6 +1789,9 @@ function resetForm() {
   cancelEnvPaste();
   document.getElementById('cron-preview').textContent = '';
   document.getElementById('f-token').placeholder = 'ghp_xxxxxxxxxxxxxxxxxxxx';
+  document.getElementById('f-token-clear').checked = false;
+  document.getElementById('f-token').disabled = false;
+  document.getElementById('f-token-clear-wrap').style.display = 'none';
   onBuildCmdChange();
   toggleRunMode();
   resetUpdateCheck();
@@ -2027,6 +2030,9 @@ function populateScriptForm(config) {
   document.getElementById('f-token').placeholder = config.repoToken
     ? '(token already set — leave blank to keep)'
     : 'ghp_xxxxxxxxxxxxxxxxxxxx';
+  document.getElementById('f-token-clear').checked = false;
+  document.getElementById('f-token').disabled = false;
+  document.getElementById('f-token-clear-wrap').style.display = config.repoToken ? 'flex' : 'none';
 
   if (config.runMode === 'scheduled') {
     document.getElementById('rm-scheduled').checked = true;
@@ -2150,6 +2156,13 @@ function updateCronPreview() {
   el.textContent = expr ? (describeCron(expr) || expr) : '';
 }
 
+function onTokenClearChange() {
+  const clear = document.getElementById('f-token-clear').checked;
+  const input = document.getElementById('f-token');
+  if (clear) input.value = '';
+  input.disabled = clear;
+}
+
 function collectScriptFormBody() {
   const lang     = document.getElementById('f-lang').value;
   const sourceType = scriptModalMode === 'edit'
@@ -2185,6 +2198,7 @@ function collectScriptFormBody() {
     body.repo   = repo;
     body.branch = branch;
     if (token) body.repoToken = token;
+    else if (document.getElementById('f-token-clear').checked) body.repoToken = '';   // empty string clears it on edit
   }
   if (port)                   body.port         = parseInt(port);
   body.setupCommand = setupcmd;           // empty string clears it on edit
