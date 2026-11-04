@@ -1312,7 +1312,12 @@
       <div class="form-group">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
           <label style="margin-bottom:0">Environment Variables</label>
-          <button class="btn btn-ghost btn-sm" onclick="addPlatformAppEnvRow()">+ Add Variable</button>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-ghost btn-sm" onclick="document.getElementById('pa-env-file').click()" title="Upload a .env file (merged into the rows below)">&#8593; Upload .env</button>
+            <button class="btn btn-ghost btn-sm" onclick="downloadPlatformAppEnvFile()" title="Download the variables below as a .env file">&#8595; Download .env</button>
+            <button class="btn btn-ghost btn-sm" onclick="addPlatformAppEnvRow()">+ Add Variable</button>
+          </div>
+          <input type="file" id="pa-env-file" accept=".env,text/plain" style="display:none" onchange="uploadPlatformAppEnvFile(this)" />
         </div>
         <div id="pa-env-rows"></div>
       </div>

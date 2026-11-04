@@ -672,6 +672,40 @@ function addPlatformAppEnvRow(k, v) {
   document.getElementById('pa-env-rows').appendChild(row);
 }
 
+function downloadPlatformAppEnvFile() {
+  const lines = [];
+  document.querySelectorAll('#pa-env-rows .env-row').forEach(row => {
+    const k = row.querySelector('.pa-env-key').value.trim();
+    const v = row.querySelector('.pa-env-val').value.trim();
+    if (!k) return;
+    lines.push(/\s|"/.test(v) ? `${k}="${v.replace(/"/g, '\\"')}"` : `${k}=${v}`);
+  });
+  if (!lines.length) { toast('No environment variables to download', 'error'); return; }
+  const blob = new Blob([lines.join('\n') + '\n'], { type: 'text/plain' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${editingPlatformAppName || document.getElementById('pa-name')?.value || 'platform-app'}.env`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+async function uploadPlatformAppEnvFile(input) {
+  const file = input.files[0];
+  input.value = '';
+  if (!file) return;
+  const parsed = parseEnvText(await file.text());
+  const entries = Object.entries(parsed);
+  if (!entries.length) { toast('No KEY=value pairs found in that file', 'error'); return; }
+  // Merge: overwrite rows whose key already exists, append the rest.
+  const rows = [...document.querySelectorAll('#pa-env-rows .env-row')];
+  entries.forEach(([k, v]) => {
+    const existing = rows.find(r => r.querySelector('.pa-env-key').value.trim() === k);
+    if (existing) existing.querySelector('.pa-env-val').value = v;
+    else addPlatformAppEnvRow(k, v);
+  });
+  toast(`Loaded ${entries.length} variable(s) from ${file.name}`, 'success');
+}
+
 function resetPlatformAppForm() {
   document.getElementById('pa-name').value            = '';
   document.getElementById('pa-repo').value            = '';
