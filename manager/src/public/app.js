@@ -73,17 +73,14 @@ async function api(method, path, body) {
 }
 
 /* ── Tab switching ──────────────────────────────────────────────────────── */
-const TAB_INDEX = { scripts: 0, logs: 1, audit: 2, admin: 3, tests: 4, 'platform-apps': 5 };
-
 function showTab(tab) {
   currentTab = tab;
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.tab-btn').forEach(b  => b.classList.remove('active'));
   const panel = document.getElementById(`tab-${tab}`);
   if (panel) panel.classList.add('active');
-  const tabBtns = Array.from(document.querySelectorAll('.tab-btn'));
-  const idx = TAB_INDEX[tab] ?? 0;
-  if (tabBtns[idx]) tabBtns[idx].classList.add('active');
+  const btn = document.querySelector(`.tab-btn[onclick="showTab('${tab}')"]`);
+  if (btn) btn.classList.add('active');
 
 
   if (tab === 'scripts')    loadScripts();
@@ -2175,7 +2172,9 @@ function parseEnvText(text) {
     const key = trimmed.slice(0, eqIdx).trim();
     let val = trimmed.slice(eqIdx + 1).trim();
     // strip surrounding quotes
-    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+    if (val.length >= 2 && val.startsWith('"') && val.endsWith('"')) {
+      val = val.slice(1, -1).replace(/\\"/g, '"');
+    } else if (val.length >= 2 && val.startsWith("'") && val.endsWith("'")) {
       val = val.slice(1, -1);
     }
     if (key) result[key] = val;
