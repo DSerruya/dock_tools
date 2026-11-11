@@ -17,6 +17,7 @@ const HOST_SCRIPTS_DATA_PATH = process.env.HOST_SCRIPTS_DATA_PATH  || '/app/scri
 // matching gitService.ts/configService.ts, and is what any fs.* call in this file must use.
 const DATA_DIR               = process.env.DATA_DIR               || '/app/scripts-data';
 const VPN_IMAGE              = 'alpine:3.19';
+const VPN_CONNECT_TIMEOUT_S  = 30;
 
 const IMAGE_MAP: Record<string, string> = {
   python:     'python:3.12-slim',
@@ -212,14 +213,39 @@ async function startVpnSidecar(name: string, mssFix?: string): Promise<void> {
   });
   await c.start();
 
-  // Poll logs until connected (up to 30 s)
-  for (let i = 0; i < 30; i++) {
+  // Poll logs until connected (up to VPN_CONNECT_TIMEOUT_S). Never fall through silently: a script
+  // started against a tunnel that has no pushed routes/DNS yet fails in confusing ways (or, worse,
+  // takes a different path to the network than intended), so a connect failure fails the run.
+  for (let i = 0; i < VPN_CONNECT_TIMEOUT_S; i++) {
     await new Promise(r => setTimeout(r, 1000));
+    let logs: string;
     try {
-      const buf = await c.logs({ stdout: true, stderr: true, tail: 30 }) as unknown as Buffer;
-      if (demuxLogs(buf).includes('Initialization Sequence Completed')) return;
-    } catch { break; }
+      logs = demuxLogs(await c.logs({ stdout: true, stderr: true, tail: 30 }) as unknown as Buffer);
+    } catch (err: any) {
+      throw new VpnConnectError(`VPN sidecar ${vpnContainerName(name)} logs became unreadable: ${err?.message || err}`);
+    }
+    if (logs.includes('Initialization Sequence Completed')) return;
   }
+  throw new VpnConnectError(
+    `VPN sidecar ${vpnContainerName(name)} did not report "Initialization Sequence Completed" within ${VPN_CONNECT_TIMEOUT_S}s`,
+  );
+}
+
+class VpnConnectError extends Error {}
+
+// Starts the sidecar and waits for the tunnel. On failure the sidecar's logs and the reason are
+// written to the run log, the sidecar is torn down, and the error propagates so the run is
+// recorded as failed — and, since no exit code 0 is ever reported, no heartbeat ping goes out.
+async function startVpnOrFail(config: ScriptConfig, runId: string): Promise<void> {
+  try {
+    await startVpnSidecar(config.name, config.vpnMssFix);
+  } catch (err: any) {
+    await prependVpnLogs(config.name, runId);
+    logService.appendLog(runId, `\n[vpn] ${err?.message || err} — script not started\n`);
+    try { await stopVpnSidecar(config.name); } catch {}
+    throw err;
+  }
+  await prependVpnLogs(config.name, runId);
 }
 
 async function stopVpnSidecar(name: string): Promise<void> {
@@ -362,10 +388,7 @@ async function captureOnceLog(container: Dockerode.Container, runId: string): Pr
 // ── Public API ────────────────────────────────────────────────────────────────
 
 export async function start(config: ScriptConfig, runId: string, opts?: { forceRebuild?: boolean }): Promise<void> {
-  if (config.vpnEnabled) {
-    await startVpnSidecar(config.name, config.vpnMssFix);
-    await prependVpnLogs(config.name, runId);
-  }
+  if (config.vpnEnabled) await startVpnOrFail(config, runId);
   await removeIfExists(config.name);
   if (opts?.forceRebuild) invalidateDepsCache(config.name);
   const c = await createContainer(config, 'unless-stopped');
@@ -384,10 +407,7 @@ export async function stop(name: string, vpnEnabled?: boolean): Promise<void> {
 }
 
 export async function restart(config: ScriptConfig, runId: string, opts?: { forceRebuild?: boolean }): Promise<void> {
-  if (config.vpnEnabled) {
-    await startVpnSidecar(config.name, config.vpnMssFix);
-    await prependVpnLogs(config.name, runId);
-  }
+  if (config.vpnEnabled) await startVpnOrFail(config, runId);
   await removeIfExists(config.name);
   // Invalidate only after the old container is confirmed gone — otherwise a build still in
   // flight in that container could touch the sentinel after we've cleared it, resurrecting
@@ -400,10 +420,7 @@ export async function restart(config: ScriptConfig, runId: string, opts?: { forc
 }
 
 export async function runOnce(config: ScriptConfig, runId: string, opts?: { forceRebuild?: boolean }): Promise<{ exitCode: number }> {
-  if (config.vpnEnabled) {
-    await startVpnSidecar(config.name, config.vpnMssFix);
-    await prependVpnLogs(config.name, runId);
-  }
+  if (config.vpnEnabled) await startVpnOrFail(config, runId);
   await removeIfExists(config.name);
   if (opts?.forceRebuild) invalidateDepsCache(config.name);
   const c = await createContainer(config, 'no');
