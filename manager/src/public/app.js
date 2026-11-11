@@ -1816,6 +1816,7 @@ function resetForm() {
   document.getElementById('f-timezone').value  = 'UTC';
   document.getElementById('rm-persistent').checked = true;
   document.getElementById('f-preserve-env').checked = false;
+  document.getElementById('f-pull-on-start').checked = false;
   document.getElementById('env-rows').innerHTML    = '';
   cancelEnvPaste();
   document.getElementById('cron-preview').textContent = '';
@@ -2056,6 +2057,7 @@ function populateScriptForm(config) {
   document.getElementById('f-setupcmd').value = config.setupCommand || '';
   document.getElementById('f-buildcmd').value = config.buildCommand || '';
   document.getElementById('f-preserve-env').checked = !!config.preserveEnv;
+  document.getElementById('f-pull-on-start').checked = !!config.pullOnStart;
   document.getElementById('f-port').value     = config.port || '';
   document.getElementById('f-token').value    = '';
   document.getElementById('f-token').placeholder = config.repoToken
@@ -2237,6 +2239,7 @@ function collectScriptFormBody() {
   body.setupCommand = setupcmd;           // empty string clears it on edit
   body.buildCommand = buildcmd;           // empty string clears it on edit
   body.preserveEnv  = buildcmd ? preserveEnv : false;
+  body.pullOnStart  = document.getElementById('f-pull-on-start').checked;
   body.schedule  = runMode === 'scheduled' ? sched : '';
   body.timezone  = tz;
   body.vpnMssFix = vpnMssFix;             // empty string clears it on edit

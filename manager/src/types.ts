@@ -41,6 +41,10 @@ export interface ScriptConfig {
   vpnEnabled?: boolean;
   vpnMssFix?: string;      // digits only, e.g. "1360" — OpenVPN --mssfix for this script's VPN sidecar,
                            // works around Path-MTU-Discovery blackholes on the tunnel (see MTU-VPN-DEBUGGING-PLAYBOOK.md)
+  pullOnStart?: boolean;   // re-pull the base image every time the container is (re)created, instead of
+                           // reusing whatever tag happens to be cached on the host. A failed pull is logged
+                           // and falls back to the cached image. With setupCommand, the baked image is also
+                           // rebuilt whenever the pulled base image id changes.
   heartbeatEnabled?: boolean;
   heartbeatUrl?: string;   // dead-man's-switch monitor URL (e.g. Zenduty/Xurrent heartbeat check-in) —
                            // pinged (GET) after every run that exits 0; a failed run is never pinged, so

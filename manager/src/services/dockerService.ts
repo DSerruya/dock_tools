@@ -72,8 +72,8 @@ export async function getStatus(name: string): Promise<ContainerStatus> {
   return 'stopped';
 }
 
-async function pullImage(image: string): Promise<void> {
-  try { await docker.getImage(image).inspect(); return; } catch {}
+async function pullImage(image: string, force = false): Promise<void> {
+  if (!force) { try { await docker.getImage(image).inspect(); return; } catch {} }
   await new Promise<void>((resolve, reject) => {
     docker.pull(image, (err: Error | null, stream: NodeJS.ReadableStream) => {
       if (err) return reject(err);
@@ -82,14 +82,28 @@ async function pullImage(image: string): Promise<void> {
   });
 }
 
+// Forced re-pull for pullOnStart scripts. A registry/network failure must not block the run, so
+// it is logged loudly and the locally cached image is used; it only throws if there is no local
+// copy to fall back to (same outcome as the non-forced path).
+async function refreshImage(image: string): Promise<void> {
+  try {
+    await pullImage(image, true);
+  } catch (err: any) {
+    console.error(`[pullOnStart] WARNING: could not pull ${image}: ${err?.message || err} — falling back to the cached local image`);
+    await pullImage(image);
+  }
+}
+
 function setupBuildDir(name: string): string { return `${DATA_DIR}/${name}/.setup-build`; }
 
 // Tag is content-addressed (hash of base image + setupCommand text), not name-only, so an
 // unchanged setupCommand always resolves to an already-built image (checked below) and any
 // edit to it naturally produces a new tag — no separate cache-invalidation bookkeeping needed,
 // unlike buildCommand's DEPS_SENTINEL dance.
-function setupImageTag(name: string, baseImage: string, setupCommand: string): string {
-  const hash = crypto.createHash('sha256').update(`${baseImage}\n${setupCommand}`).digest('hex').slice(0, 16);
+// baseImageId is only passed for pullOnStart scripts, so a re-pull that lands a new base image
+// produces a new tag (and a rebuild) while every other script keeps its existing tag.
+function setupImageTag(name: string, baseImage: string, setupCommand: string, baseImageId = ''): string {
+  const hash = crypto.createHash('sha256').update(`${baseImage}\n${setupCommand}${baseImageId ? `\n${baseImageId}` : ''}`).digest('hex').slice(0, 16);
   return `script-setup-${name}:${hash}`;
 }
 
@@ -99,7 +113,12 @@ function setupImageTag(name: string, baseImage: string, setupCommand: string): s
 // container recreation — so unlike buildCommand's npm/bundle installs, they can't be made to
 // persist via the sentinel-file trick; they need to live in an image layer instead.
 async function buildSetupImage(config: ScriptConfig, baseImage: string): Promise<string> {
-  const tag = setupImageTag(config.name, baseImage, config.setupCommand!);
+  let baseImageId = '';
+  if (config.pullOnStart) {
+    await refreshImage(baseImage);
+    baseImageId = (await docker.getImage(baseImage).inspect()).Id;
+  }
+  const tag = setupImageTag(config.name, baseImage, config.setupCommand!, baseImageId);
 
   try { await docker.getImage(tag).inspect(); return tag; } catch { /* not built yet */ }
 
@@ -129,7 +148,8 @@ async function buildSetupImage(config: ScriptConfig, baseImage: string): Promise
 async function resolveImage(config: ScriptConfig): Promise<string> {
   const baseImage = IMAGE_MAP[config.language] || 'node:20-slim';
   if (!config.setupCommand) {
-    await pullImage(baseImage);
+    if (config.pullOnStart) await refreshImage(baseImage);
+    else await pullImage(baseImage);
     return baseImage;
   }
   return buildSetupImage(config, baseImage);

@@ -1097,6 +1097,15 @@
         </div>
       </div>
       <div class="form-group">
+        <div style="display:flex;align-items:center;gap:10px">
+          <label class="toggle-switch" title="Pull the base image again every time the container is created, instead of reusing the host's cached copy">
+            <input type="checkbox" id="f-pull-on-start" />
+            <span class="toggle-slider"></span>
+          </label>
+          <span style="font-size:11px;color:var(--muted)">Always pull base image on start (keeps apt keyrings/security patches fresh; falls back to the cached image if the pull fails)</span>
+        </div>
+      </div>
+      <div class="form-group">
         <label>Run Mode</label>
         <div class="run-mode-toggle">
           <input type="radio" name="run-mode" id="rm-persistent" value="persistent" checked />
