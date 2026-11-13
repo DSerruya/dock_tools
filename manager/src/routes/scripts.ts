@@ -244,11 +244,14 @@ router.put('/:name', requireRole('admin', 'agent'), async (req, res) => {
   const activeRun = logService.findRunningRun(config.name);
   if (activeRun) logService.markRunFailed(activeRun.runId, 'Config updated');
 
-  // Unregister existing cron before saving so it uses the old config
-  cronService.unregister(config.name);
-
   configService.save(updated);
   auditService.record(user, 'config.updated', config.name, changes);
+
+  // Swap the cron job synchronously (register replaces any existing job atomically) so the
+  // schedule — and its nextRun — never disappears while the container teardown runs below,
+  // and a failure there can't leave the script without a job.
+  if (updated.runMode === 'scheduled' && updated.schedule) cronService.reschedule(updated);
+  else cronService.unregister(config.name);
 
   res.json({ message: 'Config saved. Applying changes in background...' });
 
@@ -289,7 +292,6 @@ router.put('/:name', requireRole('admin', 'agent'), async (req, res) => {
       } else if (updated.runMode === 'scheduled') {
         await dockerService.removeContainer(config.name);
         if (buildCommandChanged) dockerService.invalidateDepsCache(config.name);
-        if (updated.schedule) cronService.register(updated);
       }
     } catch (err) { console.error(`[edit] ${config.name}:`, err); }
   });
